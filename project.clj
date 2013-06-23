@@ -6,8 +6,8 @@
   :dependencies [[org.clojure/clojure "1.5.1"]
                  ;; What are the odds that this is actually useful?
                  [org.clojure/tools.nrepl "0.2.3"]
-                 ;; Really should check to see what this is to verify
-                 ;; that I don't care about it.
-                 ;;[cc.qbits/jilch "0.3.0"]
                  [org.zeromq/jzmq "2.2.0"]]
+  :profiles {:dev {:source-paths ["dev"]
+                   :dependencies [[org.clojure/tools.namespace "0.2.3"]
+                                  [org.clojure/java.classpath "0.2.0"]]}}
   :main frereth-client.core)

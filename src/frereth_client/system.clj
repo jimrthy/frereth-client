@@ -15,15 +15,21 @@
   {:renderer-connection (atom nil)
    :local-server-context (atom nil)})
 
+(defn- negotiate-local-connection
+  "Tell local server who we are."
+  [socket]
+  (error "Get this written"))
+
 (defn start
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
   [universe]
-  (assert (not (:renderer-connection universe)))
-  (assert (not (:local-server-context universe)))
+  (assert (not @(:renderer-connection universe)))
+  (assert (not @(:local-server-context universe)))
   (let* [connections
          {;; Is there any real point to putting this into an atom?
           :renderer-connection (atom (nrepl/start-server config/*renderer-port*))
+
           ;; Is there any reason to have more than 1 thread dedicated
           ;; to connecting to the local server?
           :local-server-context (atom (mq/context 1))}
@@ -35,7 +41,7 @@ and start it running. Returns an updated instance of the system."
           (.connect (mq/connect (:local-server-socket sockets)
                                 (str "tcp://localhost:" port)))
           (try
-            (negotiate-connection sockets)
+            (negotiate-local-connection (:local-server-socket sockets))
             (catch RuntimeException ex
               ;; Surely I can manage better error reporting
               (throw (RuntimeException. ex)))))))
@@ -52,14 +58,17 @@ and start it running. Returns an updated instance of the system."
     (try
       (if-let [local-server-port (:local-server-socket universe)]
         (.close local-server-port))
-      (finally (.term local-server-connetion)))))
+      (finally (.term local-server-connection)))))
 
 (defn stop
   "Performs side-effects to shut down the system and release its
-resources. Returns an updated instance of the system"
+resources. Returns an updated instance of the system, ready to re-start."
   [universe]
   (kill-renderer-listener universe)
   (kill-local-server-connection universe)
+  ;; It seems more than a little wrong to just dump the existing system to
+  ;; be garbage collected. Odds are, though, that's probably exactly
+  ;; what I want to happen in almost all cases.
   (init))
 
 
