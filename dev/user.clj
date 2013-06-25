@@ -29,9 +29,13 @@
 (defn go
   "Initializes the current development system and starts it running."
   []
+  (println "Initializing system")
   (init)
+  (println "Restarting system")
   (start))
 
 (defn reset []
+  (println "Stopping")
   (stop)
+  (println "Refreshing namespaces")
   (refresh :after 'user/go))

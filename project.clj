@@ -9,5 +9,6 @@
                  [org.zeromq/jzmq "2.2.0"]]
   :profiles {:dev {:source-paths ["dev"]
                    :dependencies [[org.clojure/tools.namespace "0.2.3"]
-                                  [org.clojure/java.classpath "0.2.0"]]}}
+                                  [org.clojure/java.classpath "0.2.0"]
+                                  [org.clojure/tools.logging "0.2.6"]]}}
   :main frereth-client.core)

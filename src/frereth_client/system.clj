@@ -1,6 +1,7 @@
 (ns frereth-client.system
   (:gen-class)
   (:require [frereth-client.config :as config]
+            [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
             ;; FIXME: Don't use this
             ;[qbits.jilch.mq :as mq]
@@ -26,50 +27,77 @@ and start it running. Returns an updated instance of the system."
   [universe]
   (assert (not @(:renderer-connection universe)))
   (assert (not @(:local-server-context universe)))
-  (let* [connections
+  (println "Building network connections")
+  (let [connections
          {;; Is there any real point to putting this into an atom?
-          :renderer-connection (atom (nrepl/start-server config/*renderer-port*))
+          :renderer-connection (atom (nrepl/start-server :port config/*renderer-port*))
 
           ;; Is there any reason to have more than 1 thread dedicated
           ;; to connecting to the local server?
           :local-server-context (atom (mq/context 1))}
          sockets (into connections
                        {:local-server-socket (atom (mq/socket 
-                                                    (:local-server-context connections)
-                                                    (mq/req)))})]
+                                                    @(:local-server-context connections)
+                                                    mq/req))})]
+        (log/trace "Bare minimum networking configured")
         (let [port config/*server-port*]
-          (.connect (mq/connect (:local-server-socket sockets)
+          (println "Connectiong to server")
+          ;; FIXME: Start here
+          ;; IllegalArgumentException because ZMQ$Socket
+          ;; does not have a connect field
+          (.connect (mq/connect @(:local-server-socket sockets)
                                 (str "tcp://localhost:" port)))
           (try
-            (negotiate-local-connection (:local-server-socket sockets))
+            (println "Negotiating connection with local server")
+            (negotiate-local-connection @(:local-server-socket sockets))
+            (println "Negotiation succeeded")
             (catch RuntimeException ex
               ;; Surely I can manage better error reporting
+              (println "Negotiation failed")
               (throw (RuntimeException. ex)))))))
 
 (defn- kill-renderer-listener [universe]
   (when-let [connection-holder (:renderer-connection universe)]
-    (io! (nrepl/stop-server @connection-holder))
+    (try
+      ;; Not getting here.
+      ;; I am...just needed to restart JVM.
+      ;;(intentional syntax error)
+      (log/trace "Getting ready to stop nrepl")
+      ;;(throw (RuntimeException. "Test"))
+      (io! (nrepl/stop-server @connection-holder))
+      (log/trace "NREPL stopped")
+      (catch RuntimeException ex
+        ;; Q: Do I actually care about this?
+        ;; A: Why aren't I catching this?
+        (log/warn ex "\nTrying to stop the nrepl server")))
+    (println "NIL'ing out the NREPL server")
     (swap! connection-holder (fn [_] nil))))
 
 (defn- kill-local-server-connection
   "Free up the socket that's connected to the 'local' server"
   [universe]
-  (if-let [local-server-connection (:local-server-context universe)]
+  (println "Killing connection to 'local server'")
+  (when-let [local-server-connection @(:local-server-context universe)]
     (try
-      (if-let [local-server-port (:local-server-socket universe)]
-        (.close local-server-port))
+      (when-let [local-server-port @(:local-server-socket universe)]
+        (.close local-server-port)
+        (swap! local-server-port (fn [_] nil) ))
       (finally (.term local-server-connection)))))
 
 (defn stop
   "Performs side-effects to shut down the system and release its
 resources. Returns an updated instance of the system, ready to re-start."
   [universe]
-  (kill-renderer-listener universe)
-  (kill-local-server-connection universe)
-  ;; It seems more than a little wrong to just dump the existing system to
-  ;; be garbage collected. Odds are, though, that's probably exactly
-  ;; what I want to happen in almost all cases.
-  (init))
+  (when universe
+    (println "Closing connection with renderer")
+    (kill-renderer-listener universe)
+    (println "Closing connection to main server")
+    (kill-local-server-connection universe)
+    (println "Setting up replacement system")
+    ;; It seems more than a little wrong to just dump the existing system to
+    ;; be garbage collected. Odds are, though, that's probably exactly
+    ;; what I want to happen in almost all cases.
+    (init)))
 
 
 
