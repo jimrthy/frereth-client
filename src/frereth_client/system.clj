@@ -3,7 +3,8 @@
   (:require [frereth-client.config :as config]
             [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
-            ;; FIXME: Don't use this
+            ;; Can't use this. License isn't
+            ;; compatible.
             ;[qbits.jilch.mq :as mq]
             ;; This sort of thing seems like it should be
             ;; part of the language binding.
@@ -29,7 +30,8 @@ and start it running. Returns an updated instance of the system."
   (assert (not @(:local-server-context universe)))
   (println "Building network connections")
   (let [connections
-         {;; Is there any real point to putting this into an atom?
+         {;; Q: Is there any real point to putting this into an atom?
+          ;; A: Duh. There aren't many alternatives for changing it.
           :renderer-connection (atom (nrepl/start-server :port config/*renderer-port*))
 
           ;; Is there any reason to have more than 1 thread dedicated
@@ -42,9 +44,6 @@ and start it running. Returns an updated instance of the system."
         (log/trace "Bare minimum networking configured")
         (let [port config/*server-port*]
           (println "Connectiong to server")
-          ;; FIXME: Start here
-          ;; IllegalArgumentException because ZMQ$Socket
-          ;; does not have a connect field
           (mq/connect @(:local-server-socket sockets)
                       (str "tcp://localhost:" port))
           (try
@@ -54,29 +53,29 @@ and start it running. Returns an updated instance of the system."
             (catch RuntimeException ex
               ;; Surely I can manage better error reporting
               (println "Negotiation failed")
-              (throw (RuntimeException. ex)))))))
+              ;;(throw (RuntimeException. ex))
+              )))
+        sockets))
 
 (defn- kill-renderer-listener [universe]
-  (when-let [connection-holder (:renderer-connection universe)]
-    (try
-      ;; Not getting here.
-      ;; I am...just needed to restart JVM.
-      ;;(intentional syntax error)
-      (log/trace "Getting ready to stop nrepl")
-      ;;(throw (RuntimeException. "Test"))
-      (when-let [connection @connection-holder]
-        (io! (nrepl/stop-server connection)))
-      (log/trace "NREPL stopped")
-      (catch RuntimeException ex
-        ;; Q: Do I actually care about this?
-        ;; A: It seems at least mildly important, especially
-        ;; over the long haul. Like, e.g. unbinding socket
-        ;; connections
-        ;; Q: Why aren't I catching this?
-        ;; A: I am. I'm just getting further errors later.
-        (log/warn ex "\nTrying to stop the nrepl server")))
-    (println "NIL'ing out the NREPL server")
-    (swap! connection-holder (fn [_] nil))))
+  (if-let [connection-holder (:renderer-connection universe)]
+    (do
+      (try
+        (log/trace "Getting ready to stop nrepl")
+        (when-let [connection @connection-holder]
+          (io! (nrepl/stop-server connection)))
+        (log/trace "NREPL stopped")
+        (catch RuntimeException ex
+          ;; Q: Do I actually care about this?
+          ;; A: It seems at least mildly important, especially
+          ;; over the long haul. Like, e.g. unbinding socket
+          ;; connections
+          ;; Q: Why aren't I catching this?
+          ;; A: I am. I'm just getting further errors later.
+          (log/warn ex "\nTrying to stop the nrepl server")))
+      (println "NIL'ing out the NREPL server")
+      (swap! connection-holder (fn [_] nil)))
+    (println "No existing connection...this seems problematic")))
 
 (defn- kill-local-server-connection
   "Free up the socket that's connected to the 'local' server"
