@@ -15,7 +15,8 @@
   "Returns a new instance of the whole application"
   []
   {:renderer-connection (atom nil)
-   :local-server-context (atom nil)})
+   :local-server-context (atom nil)
+   :local-server-socket (atom nil)})
 
 (defn- negotiate-local-connection
   "Tell local server who we are."
@@ -82,11 +83,20 @@ and start it running. Returns an updated instance of the system."
   [universe]
   (println "Killing connection to 'local server'")
   (when-let [local-server-connection @(:local-server-context universe)]
+    (println "Local server connection: " local-server-connection)
     (try
-      (when-let [local-server-port @(:local-server-socket universe)]
-        (.close local-server-port)
-        (swap! local-server-port (fn [_] nil) ))
-      (finally (.term local-server-connection)))))
+      (when-let [local-server-atom (:local-server-socket universe)]
+        (when-let [local-server-port @local-server-atom]
+          (println "Closing local server port")
+          (.close local-server-port)
+          (println "Resetting local server port")
+          (swap! local-server-atom (fn [_] nil))))
+      (println "Connection to local server stopped")
+      (finally
+        (println "Terminating connection")
+        ;; N.B. It's really important to have no more than one
+        ;; connection per application.
+        (.term local-server-connection)))))
 
 (defn stop
   "Performs side-effects to shut down the system and release its
