@@ -45,8 +45,8 @@ and start it running. Returns an updated instance of the system."
           ;; FIXME: Start here
           ;; IllegalArgumentException because ZMQ$Socket
           ;; does not have a connect field
-          (.connect (mq/connect @(:local-server-socket sockets)
-                                (str "tcp://localhost:" port)))
+          (mq/connect @(:local-server-socket sockets)
+                      (str "tcp://localhost:" port))
           (try
             (println "Negotiating connection with local server")
             (negotiate-local-connection @(:local-server-socket sockets))
@@ -64,11 +64,16 @@ and start it running. Returns an updated instance of the system."
       ;;(intentional syntax error)
       (log/trace "Getting ready to stop nrepl")
       ;;(throw (RuntimeException. "Test"))
-      (io! (nrepl/stop-server @connection-holder))
+      (when-let [connection @connection-holder]
+        (io! (nrepl/stop-server connection)))
       (log/trace "NREPL stopped")
       (catch RuntimeException ex
         ;; Q: Do I actually care about this?
-        ;; A: Why aren't I catching this?
+        ;; A: It seems at least mildly important, especially
+        ;; over the long haul. Like, e.g. unbinding socket
+        ;; connections
+        ;; Q: Why aren't I catching this?
+        ;; A: I am. I'm just getting further errors later.
         (log/warn ex "\nTrying to stop the nrepl server")))
     (println "NIL'ing out the NREPL server")
     (swap! connection-holder (fn [_] nil))))
