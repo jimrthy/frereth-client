@@ -35,8 +35,7 @@ and start it running. Returns an updated instance of the system."
           ;; A: Duh. There aren't many alternatives for changing it.
           :renderer-connection (atom (nrepl/start-server :port config/*renderer-port*))
 
-          ;; Is there any reason to have more than 1 thread dedicated
-          ;; to connecting to the local server?
+          ;; Is there any possible reason to have more than 1 thread here?
           :local-server-context (atom (mq/context 1))}
          sockets (into connections
                        {:local-server-socket (atom (mq/socket 
