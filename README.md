@@ -25,6 +25,14 @@ FIXME: listing of options this app accepts.
 
 ...
 
+### Further Thoughts
+
+Extended Access Controls.
+
+Multiple users.
+
+How many of those ideas apply here vs. in the renderer?
+
 ### Any Other Sections
 ### That You Think
 ### Might be Useful
