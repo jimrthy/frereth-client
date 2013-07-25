@@ -15,11 +15,13 @@
   "Returns a new instance of the whole application"
   []
   {:renderer-connection (atom nil)
-   :local-server-context (atom nil)
+   :messaging-context (atom nil)
    :local-server-socket (atom nil)})
 
 (defn- negotiate-local-connection
-  "Tell local server who we are."
+  "Tell local server who we are.
+FIXME: This doesn't really seem to belong here.
+But FI...I'm getting the rope thrown across the gorge."
   [socket]
   (error "Get this written"))
 
@@ -28,7 +30,7 @@
 and start it running. Returns an updated instance of the system."
   [universe]
   (assert (not @(:renderer-connection universe)))
-  (assert (not @(:local-server-context universe)))
+  (assert (not @(:messaging-context universe)))
   (println "Building network connections")
   (let [connections
          {;; Q: Is there any real point to putting this into an atom?
@@ -36,11 +38,11 @@ and start it running. Returns an updated instance of the system."
           :renderer-connection (atom (nrepl/start-server :port config/*renderer-port*))
 
           ;; Is there any possible reason to have more than 1 thread here?
-          :local-server-context (atom (mq/context 1))}
+          :messaging-context (atom (mq/context 1))}
          sockets (into connections
                        {:local-server-socket (atom (mq/socket 
-                                                    @(:local-server-context connections)
-                                                    mq/req))})]
+                                                    @(:messaging-context connections)
+                                                    (:req mq/const)))})]
         (log/trace "Bare minimum networking configured")
         (let [port config/*server-port*]
           (println "Connectiong to server")
@@ -81,10 +83,10 @@ and start it running. Returns an updated instance of the system."
   "Free up the socket that's connected to the 'local' server"
   [universe]
   (println "Killing connection to 'local server'")
-  (when-let [local-server-connection @(:local-server-context universe)]
+  (when-let [local-server-connection @(:messaging-context universe)]
     (println "Local server connection: " local-server-connection)
     (try
-      (when-let [local-server-atom (:local-server-socket universe)]
+      (when-let [local-server-atom (:messaging-socket universe)]
         (when-let [local-server-port @local-server-atom]
           (println "Closing local server port")
           (.close local-server-port)
