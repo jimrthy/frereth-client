@@ -3,12 +3,8 @@
   (:require [frereth-client.config :as config]
             [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
-            ;; Can't use this. License isn't
-            ;; compatible.
-            ;[qbits.jilch.mq :as mq]
-            ;; This sort of thing seems like it should be
-            ;; part of the language binding.
-            [zguide.zhelpers :as mq])
+            [org.zeromq :as mq]
+            [zguide.zhelpers :as mqh])
   (:use [frereth-client.utils]))
 
 (defn init 
