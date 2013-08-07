@@ -1,18 +1,17 @@
 (ns frereth-client.system
   (:gen-class)
-  (:require [frereth-client.config :as config]
-            [clojure.tools.logging :as log]
+  (:require [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
-            [org.zeromq :as mq]
+            [zeromq.zmq :as mq]
             [zguide.zhelpers :as mqh])
   (:use [frereth-client.utils]))
 
 (defn init 
   "Returns a new instance of the whole application"
   []
-  {:renderer-connection (atom nil)
-   :messaging-context (atom nil)
-   :local-server-socket (atom nil)})
+  {:renderer (atom nil)  ; Rendering clients communicate over this socket
+   :ctx (atom nil)       ; 0mq message context
+   :server (atom nil)})  ; The "home world" server
 
 (defn- negotiate-local-connection
   "Tell local server who we are.
@@ -21,71 +20,80 @@ But FI...I'm getting the rope thrown across the gorge."
   [socket]
   (error "Get this written"))
 
+(defn default-config
+  "Have to define them somewhere"
+  []
+  {:ports {:renderer 7840
+           :server 7841}})
+
 (defn start
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
   [universe]
-  (assert (not @(:renderer-connection universe)))
-  (assert (not @(:messaging-context universe)))
-  (println "Building network connections")
-  (let [connections
-         {;; Q: Is there any real point to putting this into an atom?
-          ;; A: Duh. There aren't many alternatives for changing it.
-          :renderer-connection (atom (nrepl/start-server :port config/*renderer-port*))
+  (assert (not @(:renderer universe)))
+  (assert (not @(:ctx universe)))
+  (assert (not @(:server universe)))
 
-          ;; Is there any possible reason to have more than 1 thread here?
-          :messaging-context (atom (mq/context 1))}
-         sockets (into connections
-                       {:local-server-socket (atom (mq/socket 
-                                                    @(:messaging-context connections)
-                                                    (:req mq/const)))})]
-        (log/trace "Bare minimum networking configured")
-        (let [port config/*server-port*]
-          (println "Connectiong to server")
-          (mq/connect @(:local-server-socket sockets)
-                      (str "tcp://localhost:" port))
-          (try
-            (println "Negotiating connection with local server")
-            (negotiate-local-connection @(:local-server-socket sockets))
-            (println "Negotiation succeeded")
-            (catch RuntimeException ex
-              ;; Surely I can manage better error reporting
-              (println "Negotiation failed")
-              ;;(throw (RuntimeException. ex))
-              )))
-        sockets))
+  (let [defaults (default-config)
+        default-ports (:ports defaults)]
+    (println "Building network connections")
+    (let [connections
+          {;; Is there any possible reason to have more than 1 thread here?
+           :ctx (atom (mq/context 1))}
+          sockets (into connections
+                        {:server (atom (mq/socket 
+                                        @(:ctx connections)
+                                        :req))
+                         :renderer (atom (mq/socket @(:ctx connections) :dealer))})]
+      (log/trace "Bare minimum networking configured")
+      (let [server-port (:server default-ports)]
+        (println "Connectiong to server")
+        (mq/connect @(:server sockets)
+                    (str "tcp://localhost:" server-port))
+        (try
+          (println "Negotiating connection with local server")
+          (negotiate-local-connection @(:server sockets))
+          (println "Negotiation succeeded")
+          (catch RuntimeException ex
+            ;; Surely I can manage better error reporting
+            (println "Negotiation failed")
+            ;;(throw (RuntimeException. ex))
+            )))
+      sockets)))
 
 (defn- kill-renderer-listener [universe]
-  (if-let [connection-holder (:renderer-connection universe)]
+  (if-let [connection-holder (:renderer (:sockets universe))]
     (do
-      (try
-        (log/trace "Getting ready to stop nrepl")
-        (when-let [connection @connection-holder]
-          (io! (nrepl/stop-server connection)))
-        (log/trace "NREPL stopped")
-        (catch RuntimeException ex
-          ;; Q: Do I actually care about this?
-          ;; A: It seems at least mildly important, especially
-          ;; over the long haul. Like, e.g. unbinding socket
-          ;; connections
-          ;; Q: Why aren't I catching this?
-          ;; A: I am. I'm just getting further errors later.
-          (log/warn ex "\nTrying to stop the nrepl server")))
-      (println "NIL'ing out the NREPL server")
+      (#_ (try
+            (log/trace "Getting ready to stop nrepl")
+            (when-let [connection @connection-holder]
+              (io! (nrepl/stop-server connection)))
+            (log/trace "NREPL stopped")
+            (catch RuntimeException ex
+              ;; Q: Do I actually care about this?
+              ;; A: It seems at least mildly important, especially
+              ;; over the long haul. Like, e.g. unbinding socket
+              ;; connections
+              ;; Q: Why aren't I catching this?
+              ;; A: I am. I'm just getting further errors later.
+              (log/warn ex "\nTrying to stop the nrepl server"))))
+      (mq/close @connection-holder)
+      (println "NIL'ing out the rendering socket")
       (swap! connection-holder (fn [_] nil)))
     (println "No existing connection...this seems problematic")))
 
 (defn- kill-local-server-connection
-  "Free up the socket that's connected to the 'local' server"
+  "Free up the socket that's connected to the 'local' server.
+I suspect this thing's totally jacked up."
   [universe]
   (println "Killing connection to 'local server'")
-  (when-let [local-server-connection @(:messaging-context universe)]
-    (println "Local server connection: " local-server-connection)
+  (when-let [message-context @(:ctx universe)]
+    (println "Local server connection: " message-context)
     (try
-      (when-let [local-server-atom (:messaging-socket universe)]
+      (when-let [local-server-atom (:server universe)]
         (when-let [local-server-port @local-server-atom]
           (println "Closing local server port")
-          (.close local-server-port)
+          (mq/close local-server-port)
           (println "Resetting local server port")
           (swap! local-server-atom (fn [_] nil))))
       (println "Connection to local server stopped")
@@ -93,7 +101,11 @@ and start it running. Returns an updated instance of the system."
         (println "Terminating connection")
         ;; N.B. It's really important to have no more than one
         ;; connection per application.
-        (.term local-server-connection)))))
+        ;; FIXME: This really should get its own function
+        ;; And the destroy function seems to be missing from the language binding
+        ;; Am I really supposed to just let it get GC'd?
+        (.term message-context)
+        (swap! (:ctx universe) nil)))))
 
 (defn stop
   "Performs side-effects to shut down the system and release its
