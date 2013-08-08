@@ -4,9 +4,7 @@
   :license {:name "Affero General Public License"
             :url "http://www.gnu.org/licenses/agpl.html"}
   :dependencies [[org.clojure/clojure "1.5.1"]
-                 ;; Q: What are the odds that this is actually useful?
-                 ;; A: Irrelevant. The license is not compatible.
-                 ;;[org.clojure/tools.nrepl "0.2.3"]
+                 [org.zeromq/jzmq "2.2.1"]
                  [org.zeromq/cljzmq "0.1.1"]]
   :profiles {:dev {:source-paths ["dev"]
                    :dependencies [[org.clojure/tools.namespace "0.2.3"]
