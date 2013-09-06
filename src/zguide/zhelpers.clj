@@ -22,64 +22,67 @@
 (defn context [threads]
   (ZMQ/context threads))
 
+(defn terminate [#^ZMQ$Context ctx]
+  (.term ctx))
+
 (defmacro with-context
   [[id threads] & body]
   `(let [~id (context ~threads)]
      (try ~@body
-          (finally (.term ~id)))))
+          (finally (terminate ~id)))))
 
 ;; TODO: Break this up into socket types and "others."
 ;; Probably worth partitioning the "others" as well.
 ;; How can I make accessing these friendlier?
-(def ^:private const {
-                      :control {
-                                ;; Non-blocking send/recv
-                                :no-block ZMQ/NOBLOCK
-                                :dont-wait ZMQ/DONTWAIT
+(def const {
+            :control {
+                      ;; Non-blocking send/recv
+                      :no-block ZMQ/NOBLOCK
+                      :dont-wait ZMQ/DONTWAIT
                                 
-                                ;; More message parts are coming
-                                :sndmore ZMQ/SNDMORE
-                                :send-more ZMQ/SNDMORE}
+                      ;; More message parts are coming
+                      :sndmore ZMQ/SNDMORE
+                      :send-more ZMQ/SNDMORE}
             
             ;;; Socket types
-                      :socket-type {
-                                    ;; Request/Reply
-                                    :req ZMQ/REQ
-                                    :rep ZMQ/REP
+            :socket-type {
+                          ;; Request/Reply
+                          :req ZMQ/REQ
+                          :rep ZMQ/REP
                                     
-                                    ;; Publish/Subscribe
-                                    :pub ZMQ/PUB
-                                    :sub ZMQ/SUB
-
-                                    ;; Extended Publish/Subscribe
-                                    :x-pub ZMQ/XPUB
-                                    :x-sub ZMQ/XSUB
-                                    ;; Push/Pull
+                          ;; Publish/Subscribe
+                          :pub ZMQ/PUB
+                          :sub ZMQ/SUB
                           
-                                    :push ZMQ/PUSH
-                                    :pull ZMQ/PULL
+                          ;; Extended Publish/Subscribe
+                          :x-pub ZMQ/XPUB
+                          :x-sub ZMQ/XSUB
+                          ;; Push/Pull
+                          
+                          :push ZMQ/PUSH
+                          :pull ZMQ/PULL
 
-                                    ;; Internal 1:1
-                                    :pair ZMQ/PAIR
+                          ;; Internal 1:1
+                          :pair ZMQ/PAIR
 
-                                    ;; Router/Dealer
+                          ;; Router/Dealer
 
-                                    ;; Creates/consumes request-reply routing envelopes.
-                                    ;; Lets you route messages to specific connections if you
-                                    ;; know their identities.
-                                    :router ZMQ/ROUTER
+                          ;; Creates/consumes request-reply routing envelopes.
+                          ;; Lets you route messages to specific connections if you
+                          ;; know their identities.
+                          :router ZMQ/ROUTER
                                     
-                                    ;; Combined ventilator/sink.
-                                    ;; Does load balancing on output and fair-queuing on input.
-                                    ;; Can shuffle messages out to N nodes then shuffle the replies back.
-                                    ;; Raw bidirectional async pattern.
-                                    :dealer ZMQ/DEALER
+                          ;; Combined ventilator/sink.
+                          ;; Does load balancing on output and fair-queuing on input.
+                          ;; Can shuffle messages out to N nodes then shuffle the replies back.
+                          ;; Raw bidirectional async pattern.
+                          :dealer ZMQ/DEALER
                                     
-                                    ;; Obsolete names for Router/Dealer
-                                    :xreq ZMQ/XREQ
-                                    :xrep ZMQ/XREP}})
+                          ;; Obsolete names for Router/Dealer
+                          :xreq ZMQ/XREQ
+                          :xrep ZMQ/XREP}})
 
-(defn sock->c 
+(defn sock->c
   "Convert a keyword to a ZMQ constant"
   [key]
   ((const :socket-type) key))
@@ -89,10 +92,13 @@
   (let [real-type (sock->c type)]
     (.socket context real-type)))
 
+(defn close [#^ZMQ$Socket s]
+  (.close s))
+
 (defmacro with-socket [[name context type] & body]
   `(let [~name (socket ~context ~type)]
      (try ~@body
-          (finally (.close ~name)))))
+          (finally (close ~name)))))
 
 ;; FIXME: clojure.tools.macro!
 ;; At the very least, poller-name needs to be inside a vector.
@@ -102,6 +108,10 @@
 What's left still seems pretty annoying."
   ;; I don't think I actually need this sort of gensym
   ;; magic with clojure, do I?
+  ;; Not really...but the autogensyms *do* need to happen inside
+  ;; inside the backtick.
+  ;; It's pretty blatant that I haven't had any time to
+  ;; do anything that resembles testing this code.
   (let [name# poller-name
         ctx# context
         s# socket]
@@ -122,13 +132,25 @@ FIXME: Fork that repo, add this, send a Pull Request."
 
 (defn bind
   [#^ZMQ$Socket socket url]
-  (doto socket
-    (.bind url)))
+  (.bind socket url))
+
+(defn bound-socket
+  "Return a new socket bound to the specified address"
+  [ctx type url]
+  (let [s (socket ctx type)]
+    (bind s url)
+    s))
 
 (defn connect
   [#^ZMQ$Socket socket url]
-  (doto socket
-    (.connect url)))
+  (.connect socket url))
+
+(defn connected-socket
+  "Returns a new socket connected to the specified URL"
+  [ctx type url]
+  (let [s (socket ctx type)]
+    (connect s url)
+    s))
 
 (defn subscribe
   ([#^ZMQ$Socket socket #^String topic]
