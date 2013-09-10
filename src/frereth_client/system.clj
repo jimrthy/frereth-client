@@ -39,6 +39,16 @@ But FI...I'm getting the rope thrown across the gorge."
   [socket]
   (error "Get this written"))
 
+(defn default-config
+  "Have to define them somewhere.
+Should really be in a config namespace that will be smarter and
+make life simpler when I want to change these on the fly.
+Actually, it looks like that happened and this isn't called."
+  []
+  (throw (RuntimeException. "Obsolete"))
+  {:ports {:renderer 7840
+           :server 7841}})
+
 (defn start
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
@@ -88,25 +98,27 @@ and start it running. Returns an updated instance of the system."
   (log/trace "Closing REPL socket")
   (if-let [connection-holder (:controller universe)]
     (do
-      (try
-        (log/trace "Getting ready to stop nrepl")
-        (when-let [connection @connection-holder]
-          (io! (nrepl/stop-server connection)))
-        (log/trace "NREPL stopped")
-        (catch RuntimeException ex
-          ;; Q: Do I actually care about this?
-          ;; A: It seems at least mildly important, especially
-          ;; over the long haul. Like, e.g. unbinding socket
-          ;; connections
-          ;; Q: Why aren't I catching this?
-          ;; A: I am. I'm just getting further errors later.
-          (log/warn ex "\nTrying to stop the nrepl server")))
-      (log/trace "NIL'ing out the NREPL server")
+      (#_ (try
+            (log/trace "Getting ready to stop nrepl")
+            (when-let [connection @connection-holder]
+              (io! (nrepl/stop-server connection)))
+            (log/trace "NREPL stopped")
+            (catch RuntimeException ex
+              ;; Q: Do I actually care about this?
+              ;; A: It seems at least mildly important, especially
+              ;; over the long haul. Like, e.g. unbinding socket
+              ;; connections
+              ;; Q: Why aren't I catching this?
+              ;; A: I am. I'm just getting further errors later.
+              (log/warn ex "\nTrying to stop the nrepl server"))))
+      (mq/close @connection-holder)
+      (log/trace "NIL'ing out the rendering socket")
       (swap! connection-holder (fn [_] nil)))
     (log/trace "No existing connection...this seems problematic")))
 
 (defn- kill-local-server-connection
-  "Free up the socket that's connected to the 'local' server"
+  "Free up the socket that's connected to the 'local' server.
+I suspect this thing's totally jacked up."
   [universe]
   (log/trace "Killing connection to 'local server'")
   (try
