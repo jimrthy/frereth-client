@@ -59,7 +59,7 @@ and start it running. Returns an updated instance of the system."
                :controller :local-server-socket]]
       (check-not k)))
 
-  (println "Building network connections")
+  (log/trace "Building network connections")
   (let [;; Is there any possible reason to have more than 1 thread here?
         ctx (mq/context 1)
         renderer-socket (mq/bound-socket ctx :dealer (config/render-url))
@@ -82,12 +82,12 @@ and start it running. Returns an updated instance of the system."
                                                            (config/server-url)))}])
         (log/trace "Bare minimum networking configured")
         (try
-          (println "Negotiating connection with local server")
+          (log/trace "Negotiating connection with local server")
           (negotiate-local-connection @(:local-server-socket sockets))
-          (println "Negotiation succeeded")
+          (log/trace "Negotiation succeeded")
           (catch RuntimeException ex
             ;; Surely I can manage better error reporting
-            (println "Negotiation failed")
+            (log/trace "Negotiation failed")
             (throw (RuntimeException. ex))))
         connections))
 
@@ -95,7 +95,7 @@ and start it running. Returns an updated instance of the system."
   (go (>! channel :exit-pending)))
 
 (defn- kill-repl [universe]
-  (println "Closing REPL socket")
+  (log/trace "Closing REPL socket")
   (if-let [connection-holder (:controller universe)]
     (do
       (#_ (try
@@ -112,26 +112,26 @@ and start it running. Returns an updated instance of the system."
               ;; A: I am. I'm just getting further errors later.
               (log/warn ex "\nTrying to stop the nrepl server"))))
       (mq/close @connection-holder)
-      (println "NIL'ing out the rendering socket")
+      (log/trace "NIL'ing out the rendering socket")
       (swap! connection-holder (fn [_] nil)))
-    (println "No existing connection...this seems problematic")))
+    (log/trace "No existing connection...this seems problematic")))
 
 (defn- kill-local-server-connection
   "Free up the socket that's connected to the 'local' server.
 I suspect this thing's totally jacked up."
   [universe]
-  (println "Killing connection to 'local server'")
+  (log/trace "Killing connection to 'local server'")
   (try
     (when-let [local-server-atom (:local-server-socket universe)]
       (when-let [local-server-port @local-server-atom]
-        (println "Closing local server port")
+        (log/trace "Closing local server port")
         (.close local-server-port)
-        (println "Resetting local server port")
+        (log/trace "Resetting local server port")
         (swap! local-server-atom (fn [_] nil))))
-    (println "Connection to local server stopped")))
+    (log/trace "Connection to local server stopped")))
 
 (defn stop-rendering-connection [universe]
-  (println "Stopping renderer connection")
+  (log/trace "Stopping renderer connection")
   (let [c @(:renderer-channel universe)]
     ;; Yes, this is synchronous and blocking
     (>!! c :client-exit)
@@ -139,7 +139,7 @@ I suspect this thing's totally jacked up."
       (mq/stop s))))
 
 (defn kill-messaging [universe]
-    (println "Closing messaging context")
+    (log/trace "Closing messaging context")
     (when-let [ctx-atom (:messaging-context universe)]
       (when-let [ctx @ctx-atom]
         (mq/terminate ctx))))
@@ -156,7 +156,7 @@ resources. Returns an updated instance of the system, ready to re-start."
     (stop-renderer-connection universe)
     (kill-messaging)
 
-    (println "Setting up dead replacement system")
+    (log/trace "Setting up dead replacement system")
     ;; It seems more than a little wrong to just dump the existing system to
     ;; be garbage collected. Odds are, though, that's probably exactly
     ;; what I want to happen in almost all cases.

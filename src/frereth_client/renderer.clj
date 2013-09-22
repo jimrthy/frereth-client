@@ -19,4 +19,7 @@
   ;; the renderer that it's time to exit.
   ;; d) Exit.
   (go (loop [msg (>! chan)]
+        ;; Important:
+        ;; pretty much all operations involved here should
+        ;; depend on some variant of alt and a timeout.
         (throw (RuntimeException. "Do something not-stupid")))))
