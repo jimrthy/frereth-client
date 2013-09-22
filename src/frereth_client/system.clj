@@ -37,17 +37,13 @@
 FIXME: This doesn't really seem to belong here.
 But FI...I'm getting the rope thrown across the gorge."
   [socket]
-  (error "Get this written"))
-
-(defn default-config
-  "Have to define them somewhere.
-Should really be in a config namespace that will be smarter and
-make life simpler when I want to change these on the fly.
-Actually, it looks like that happened and this isn't called."
-  []
-  (throw (RuntimeException. "Obsolete"))
-  {:ports {:renderer 7840
-           :server 7841}})
+  ;; This seems silly-verbose.
+  ;; But, we do need to verify that the server is present
+  (mq/send socket :ohai)
+  (let [resp (mq/recv socket)]
+    (assert (= resp :oryl?)))
+  (mq/send (list :icanhaz? {:me-speekz {:frereth [0 0 1]}}))
+  (mq/recv socket))
 
 (defn start
   "Performs side effects to initialize the system, acquire resources,
@@ -62,10 +58,14 @@ and start it running. Returns an updated instance of the system."
   (log/trace "Building network connections")
   (let [;; Is there any possible reason to have more than 1 thread here?
         ctx (mq/context 1)
+        ;; It seems more than a little wrong to be setting up the renderer
+        ;; socket here. It doesn't need to be so widely available.
+        ;; All communication with it should go through the renderer-channel.
+        ;; FIXME: Make that so.
         renderer-socket (mq/bound-socket ctx :dealer (config/render-url))
-        channel (async/chan)]
+        renderer-channel (async/chan)]
     ;; Provide some feedback to the renderer ASAP
-    (render/fsm channel renderer-socket)
+    (render/fsm renderer-channel renderer-socket)
     (let [connections
           {;; Q: Is there any real point to putting these into atoms?
            ;; A: Duh. There aren't many alternatives for changing them.
@@ -75,7 +75,7 @@ and start it running. Returns an updated instance of the system."
 
            ;; Want to start responding to the renderer ASAP.
            :renderer-connection (atom renderer-socket)
-           :renderer-channel (atom channel)
+           :renderer-channel (atom renderer-channel)
            :controller (atom (nrepl/start-server :port (config/control-port)))
            :messaging-context (atom ctx)
            :local-server-socket (atom (mq/connected-socket ctx :req
@@ -83,8 +83,13 @@ and start it running. Returns an updated instance of the system."
       (log/trace "Bare minimum networking configured")
       (try
         (log/trace "Negotiating connection with local server")
-        (negotiate-local-connection @(:local-server-socket connections))
-        (log/trace "Negotiation succeeded")
+        (let [initial-screen
+              (negotiate-local-connection @(:local-server-socket connections))]
+          (log/trace "Negotiation succeeded")
+          ;; TODO: Add a timeout handler.
+          ;; Actually, that's such a vital piece that I'm surprised it isn't
+          ;; built directly into core.async.
+          (async/>!! renderer-channel initial-screen))
         (catch RuntimeException ex
           ;; Surely I can manage better error reporting
           (log/trace "Negotiation failed")

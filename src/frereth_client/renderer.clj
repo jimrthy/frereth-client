@@ -15,7 +15,7 @@ for that matter, that such a connection failed)."
  ;; across first.
 
  ;; For example: this pretty desperately needs a timeout
- (read socket)
+ (mq/recv socket)
  ;; And I really shouldn't just accept anything at all.
  ;; Want *some* sort of indication that the other side is
  ;; worth talking to.
