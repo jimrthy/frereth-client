@@ -8,6 +8,7 @@ pom.xml
 *.jar
 *.class
 .lein-deps-sum
+.lein-git-deps
 .lein-failures
 .lein-plugins
 *~

@@ -5,7 +5,7 @@
             [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
-            [zguide.zhelpers :as mq])
+            [cljeromq.core :as mq])
   (:use [frereth-client.utils]))
 
 (defn init 
@@ -79,20 +79,20 @@ and start it running. Returns an updated instance of the system."
            :controller (atom (nrepl/start-server :port (config/control-port)))
            :messaging-context (atom ctx)
            :local-server-socket (atom (mq/connected-socket ctx :req
-                                                           (config/server-url)))}])
-        (log/trace "Bare minimum networking configured")
-        (try
-          (log/trace "Negotiating connection with local server")
-          (negotiate-local-connection @(:local-server-socket sockets))
-          (log/trace "Negotiation succeeded")
-          (catch RuntimeException ex
-            ;; Surely I can manage better error reporting
-            (log/trace "Negotiation failed")
-            (throw (RuntimeException. ex))))
-        connections))
+                                                           (config/server-url)))}]
+      (log/trace "Bare minimum networking configured")
+      (try
+        (log/trace "Negotiating connection with local server")
+        (negotiate-local-connection @(:local-server-socket connections))
+        (log/trace "Negotiation succeeded")
+        (catch RuntimeException ex
+          ;; Surely I can manage better error reporting
+          (log/trace "Negotiation failed")
+          (throw (RuntimeException. ex))))
+      connections)))
 
 (defn- warn-renderer-about-shutdown [channel]
-  (go (>! channel :exit-pending)))
+  (async/go (async/>! channel :exit-pending)))
 
 (defn- kill-repl [universe]
   (log/trace "Closing REPL socket")
@@ -130,13 +130,13 @@ I suspect this thing's totally jacked up."
         (swap! local-server-atom (fn [_] nil))))
     (log/trace "Connection to local server stopped")))
 
-(defn stop-rendering-connection [universe]
+(defn stop-renderer-connection [universe]
   (log/trace "Stopping renderer connection")
   (let [c @(:renderer-channel universe)]
     ;; Yes, this is synchronous and blocking
-    (>!! c :client-exit)
+    (async/>!! c :client-exit)
     (let [s @(:renderer-connection universe)]
-      (mq/stop s))))
+      (mq/close s))))
 
 (defn kill-messaging [universe]
     (log/trace "Closing messaging context")
