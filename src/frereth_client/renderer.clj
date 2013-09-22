@@ -19,4 +19,4 @@
   ;; the renderer that it's time to exit.
   ;; d) Exit.
   (go (loop [msg (>! chan)]
-        (throw RuntimeException. "Do something not-stupid"))))
+        (throw (RuntimeException. "Do something not-stupid")))))
