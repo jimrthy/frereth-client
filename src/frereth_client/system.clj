@@ -2,10 +2,12 @@
   (:gen-class)
   (:require [frereth-client.config :as config]
             [frereth-client.renderer :as render]
+            [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
-            [cljeromq.core :as mq])
+            ;; Q: Debug only??
+            [clojure.tools.trace :as trace])
   (:use [frereth-client.utils]))
 
 (defn init 
@@ -17,12 +19,12 @@
    :controller (atom nil)
    ;; For handling renderer communication.
    :renderer-channel (atom nil)
-   ;; Socket for doing the renderer communication
-   :renderer-connection (atom nil)
    ;; Owns the sockets and manages communications
    :messaging-context (atom nil)
+
    ;; Socket to connect to the mastermind where all the "real" processing
    ;; happens
+   ;; TODO: Is there any reason for this to be so visible?
    :local-server-socket (atom nil)
    ;; Q: Do I want to track sockets connected to other servers here?
    ;; A: They should all go away when the context is destroyed...but
@@ -50,22 +52,17 @@ But FI...I'm getting the rope thrown across the gorge."
 and start it running. Returns an updated instance of the system."
   [universe]
   (letfn [(check-not [key]
-            (assert (not @(key universe))))]
-    (doseq [k [:controller :renderer-channel :renderer-connection 
-               :controller :local-server-socket]]
+            (assert (nil? @(key universe))))]
+    (doseq [k [:controller :renderer-channel
+               :messaging-context :local-server-socket]]
       (check-not k)))
 
   (log/trace "Building network connections")
   (let [;; Is there any possible reason to have more than 1 thread here?
         ctx (mq/context 1)
-        ;; It seems more than a little wrong to be setting up the renderer
-        ;; socket here. It doesn't need to be so widely available.
-        ;; All communication with it should go through the renderer-channel.
-        ;; FIXME: Make that so.
-        renderer-socket (mq/bound-socket ctx :dealer (config/render-url))
         renderer-channel (async/chan)]
     ;; Provide some feedback to the renderer ASAP
-    (render/fsm renderer-channel renderer-socket)
+    (render/fsm ctx renderer-channel)
     (let [connections
           {;; Q: Is there any real point to putting these into atoms?
            ;; A: Duh. There aren't many alternatives for changing them.
@@ -74,7 +71,6 @@ and start it running. Returns an updated instance of the system."
            ;; just go with atoms for now.
 
            ;; Want to start responding to the renderer ASAP.
-           :renderer-connection (atom renderer-socket)
            :renderer-channel (atom renderer-channel)
            :controller (atom (nrepl/start-server :port (config/control-port)))
            :messaging-context (atom ctx)

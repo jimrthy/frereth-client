@@ -18,7 +18,9 @@
                  ;; will almost definitely need to do at least some
                  ;; communicating over nrepl. So...)
                  ;; A: Pretty darn high.
-                 [org.clojure/tools.nrepl "0.2.3"]]
+                 [org.clojure/tools.nrepl "0.2.3"]
+                 ;; TODO: Debug profile only
+                 [org.clojure/tools.trace "0.7.6"]]
   :git-dependencies [["git@github.com:jimrthy/cljeromq.git"]]
   :main frereth-client.core
   :plugins [[lein-git-deps "0.0.1-SNAPSHOT"]]

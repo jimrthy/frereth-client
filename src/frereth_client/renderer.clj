@@ -1,6 +1,7 @@
 (ns frereth-client.renderer
   (:require [clojure.core.async :refer :all]
-            [cljeromq.core :as mq])
+            [cljeromq.core :as mq]
+            [frereth-client.config :as config])
   (:gen-class))
 
 (defn placeholder-heartbeats
@@ -28,20 +29,27 @@ for that matter, that such a connection failed)."
  ;; renderer to tee/merge that sort of thing.
  (send socket "PONG"))
 
-(defn fsm [chan socket]
-  ;; The basic idea that I want to do is:
+(defn fsm [ctx channel]
+  (let [;; It seems more than a little wrong to be setting up the renderer
+        ;; socket here. It doesn't need to be so widely available.
+        ;; All communication with it should go through the renderer-channel.
+        ;; FIXME: Make that so.
+        socket (mq/bound-socket ctx :dealer (config/render-url))]
 
-  (placeholder-heartbeats chan socket)
+    ;; The basic idea that I want to do is:
 
-  (throw (RuntimeException. "How does the rest of this actually work?"))
-  ;; b) Switch to dispatching messages between the channel
-  ;; and socket.
-  ;; c) Receive a quit message from the channel: notify
-  ;; the renderer that it's time to exit.
-  ;; d) Exit.
+    (placeholder-heartbeats chan socket)
 
-  (go (loop [msg (<! chan)]
-        ;; Important:
-        ;; pretty much all operations involved here should
-        ;; depend on some variant of alt and a timeout.
-        (throw (RuntimeException. "Do something not-stupid")))))
+    (throw (RuntimeException. "How does the rest of this actually work?"))
+
+    ;; b) Switch to dispatching messages between the channel
+    ;; and socket.
+    ;; c) Receive a quit message from the channel: notify
+    ;; the renderer that it's time to exit.
+    ;; d) Exit.
+
+    (go (loop [msg (<! chan)]
+          ;; Important:
+          ;; pretty much all operations involved here should
+          ;; depend on some variant of alt and a timeout.
+          (throw (RuntimeException. "Do something not-stupid"))))))
