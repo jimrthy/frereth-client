@@ -13,26 +13,30 @@
 (defn init 
   "Returns a new instance of the whole application"
   []
-  {;; For connecting over nrepl...I have severe doubts about just
-   ;; leaving this in place and open.
-   ;; Oh well. It's an obvious back door and easy enough to close.
-   :controller (atom nil)
-   ;; For handling renderer communication.
-   :renderer-channel (atom nil)
-   ;; Owns the sockets and manages communications
-   :messaging-context (atom nil)
+  (log/info "Initializing Frereth Client")
+  (let [result
+        {;; For connecting over nrepl...I have severe doubts about just
+         ;; leaving this in place and open.
+         ;; Oh well. It's an obvious back door and easy enough to close.
+         :controller (atom nil)
+         ;; For handling renderer communication.
+         :renderer-channel (atom nil)
+         ;; Owns the sockets and manages communications
+         :messaging-context (atom nil)
 
-   ;; Socket to connect to the mastermind where all the "real" processing
-   ;; happens
-   ;; TODO: Is there any reason for this to be so visible?
-   :local-server-socket (atom nil)
-   ;; Q: Do I want to track sockets connected to other servers here?
-   ;; A: They should all go away when the context is destroyed...but
-   ;; there are issues and memory/resource leaks that can happen if
-   ;; I'm not careful. Plus trying to destroy the context while they're
-   ;; lingering can lock the system.
-   ;; It's an ugly question.
-   })
+         ;; Socket to connect to the mastermind where all the "real" processing
+         ;; happens
+         ;; TODO: Is there any reason for this to be so visible?
+         :local-server-socket (atom nil)
+         ;; Q: Do I want to track sockets connected to other servers here?
+         ;; A: They should all go away when the context is destroyed...but
+         ;; there are issues and memory/resource leaks that can happen if
+         ;; I'm not careful. Plus trying to destroy the context while they're
+         ;; lingering can lock the system.
+         ;; It's an ugly question.
+         }]
+    (log/info "Client Initialized")
+    result))
 
 (defn- negotiate-local-connection
   "Tell local server who we are.
@@ -51,14 +55,19 @@ But FI...I'm getting the rope thrown across the gorge."
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
   [universe]
+  (log/info "Starting Frereth Client")
   (letfn [(check-not [key]
             (assert (nil? @(key universe))))]
     (doseq [k [:controller :renderer-channel
                :messaging-context :local-server-socket]]
       (check-not k)))
 
-  (log/trace "Building network connections")
-  (let [;; Is there any possible reason to have more than 1 thread here?
+  (log/info "Building network connections")
+  (let [;; Q: Is there any possible reason to have more than 1 thread here?
+        ;; A: Of course. Should probably make this configurable.
+        ;; Which, realistically, means that there needs to be a way to
+        ;; change this on the fly.
+        ;; Q: How can I tell whether more threads might help?
         ctx (mq/context 1)
         renderer-channel (async/chan)]
     ;; Provide some feedback to the renderer ASAP
@@ -90,6 +99,7 @@ and start it running. Returns an updated instance of the system."
           ;; Surely I can manage better error reporting
           (log/trace "Negotiation failed")
           (throw (RuntimeException. ex))))
+      (log/info "Frereth Client Started")
       connections)))
 
 (defn- warn-renderer-about-shutdown [channel]
@@ -149,6 +159,7 @@ I suspect this thing's totally jacked up."
   "Performs side-effects to shut down the system and release its
 resources. Returns an updated instance of the system, ready to re-start."
   [universe]
+  (log/info "Stopping Frereth Client")
   (when universe
     (warn-renderer-about-shutdown @(:renderer-channel universe))
 
@@ -161,7 +172,9 @@ resources. Returns an updated instance of the system, ready to re-start."
     ;; It seems more than a little wrong to just dump the existing system to
     ;; be garbage collected. Odds are, though, that's probably exactly
     ;; what I want to happen in almost all cases.
-    (init)))
+    (let [result (init)]
+      (log/trace "Frereth Client Stopped")
+      result)))
 
 
 

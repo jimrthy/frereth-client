@@ -1,5 +1,6 @@
 (ns frereth-client.renderer
   (:require [clojure.core.async :refer :all]
+            [clojure.tools.logging :as log]
             [cljeromq.core :as mq]
             [frereth-client.config :as config])
   (:gen-class))
@@ -15,8 +16,11 @@ for that matter, that such a connection failed)."
  ;; with peril. Which is why I'm trying to get a rope thrown
  ;; across first.
 
+ (log/info "Waiting on renderer")
  ;; For example: this pretty desperately needs a timeout
  (mq/recv socket)
+
+ (log/info "Responding to renderer")
  ;; And I really shouldn't just accept anything at all.
  ;; Want *some* sort of indication that the other side is
  ;; worth talking to.
@@ -27,7 +31,11 @@ for that matter, that such a connection failed)."
  ;; able to connect at the same time.
  ;; Then again, maybe that's the province of a plugin/alternative
  ;; renderer to tee/merge that sort of thing.
- (send socket "PONG"))
+ (send socket "PONG")
+ (throw (RuntimeException. "This really needs to happen inside its own thread, with a poller"))
+ ;; For that matter, it should really be a loop until the command channel broadcasts an
+ ;; "all done" message.
+ )
 
 (defn fsm [ctx channel]
   (let [;; It seems more than a little wrong to be setting up the renderer
@@ -38,6 +46,7 @@ for that matter, that such a connection failed)."
 
     ;; The basic idea that I want to do is:
 
+    (log/info "Kicking off heartbeat")
     (placeholder-heartbeats chan socket)
 
     (throw (RuntimeException. "How does the rest of this actually work?"))
