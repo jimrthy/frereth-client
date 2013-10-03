@@ -5,37 +5,48 @@
             [frereth-client.config :as config])
   (:gen-class))
 
-(defn placeholder-heartbeats
+(defn renderer-heartbeats
   "Start exchanging heartbeats with the renderer over
 socket, until we get a notice over the channel that
 we've established a connection with the server (or,
 for that matter, that such a connection failed)."
- [control-chan socket]
+ [control-chan ctx socket]
  ;; Don't bother with anything fancy for now.
  ;; Realistically, this seems pretty tricky and fraught
  ;; with peril. Which is why I'm trying to get a rope thrown
  ;; across first.
 
- (log/info "Waiting on renderer")
- ;; For example: this pretty desperately needs a timeout
- (mq/recv socket)
+ (log/info "Beginning renderer heartbeat")
+ (go
+  (mq/with-poller [renderer-heartbeat ctx socket]
+    (loop []
 
- (log/info "Responding to renderer")
- ;; And I really shouldn't just accept anything at all.
- ;; Want *some* sort of indication that the other side is
- ;; worth talking to.
- ;; For example...which drivers does it implement? Or some
- ;; such.
- ;; This should probably be an extremely momentous thing.
- ;; Especially since multiple clients should probably be
- ;; able to connect at the same time.
- ;; Then again, maybe that's the province of a plugin/alternative
- ;; renderer to tee/merge that sort of thing.
- (send socket "PONG")
- (throw (RuntimeException. "This really needs to happen inside its own thread, with a poller"))
- ;; For that matter, it should really be a loop until the command channel broadcasts an
- ;; "all done" message.
- )
+      (log/info "Waiting on renderer")
+      ;; For example: this pretty desperately needs a timeout
+      ;; I want to check the control-chan periodically to see
+      ;; whether it's time to quit. Blocking here means that
+      ;; can't possibly work.
+      (mq/recv socket)
+
+      (log/info "Responding to renderer")
+      ;; And I really shouldn't just accept anything at all.
+      ;; Want *some* sort of indication that the other side is
+      ;; worth talking to.
+      ;; For example...which drivers does it implement? Or some
+      ;; such.
+      ;; This should probably be an extremely momentous thing.
+      ;; Especially since multiple clients should probably be
+      ;; able to connect at the same time.
+      ;; Then again, maybe that's the province of a plugin/alternative
+      ;; renderer to tee/merge that sort of thing.
+      (mq/send socket "PONG")
+
+      ;; Seems like there must be an easier way to poll for an existing message.
+      ;; 1 ms here isn't all that big a deal, but this still seems like a waste
+      (let [to (timeout 1)]
+        (let [[v ch] (alts! [control-chan] {:default nil})]
+          (when (= ch :default)
+            (recur))))))))
 
 (defn fsm [ctx channel]
   (let [;; It seems more than a little wrong to be setting up the renderer
@@ -46,8 +57,8 @@ for that matter, that such a connection failed)."
 
     ;; The basic idea that I want to do is:
 
-    (log/info "Kicking off heartbeat")
-    (placeholder-heartbeats chan socket)
+    (log/info "Kicking off heartbeat with renderer")
+    (renderer-heartbeats chan ctx socket)
 
     (throw (RuntimeException. "How does the rest of this actually work?"))
 
