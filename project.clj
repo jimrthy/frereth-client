@@ -30,8 +30,11 @@
                                   ;; clojure.test. Depends on how that works out with
                                   ;; frereth-server.
                                   [expectations "1.4.49"]
+                                  [night-vision.goggles "0.1.0-SNAPSHOT"]
                                   [org.clojure/tools.namespace "0.2.3"]
-                                  [org.clojure/java.classpath "0.2.0"]]}}
+                                  [org.clojure/java.classpath "0.2.0"]]
+                   :injections [(require 'night-vision.goggles)
+                                (require 'clojure.pprint)]}}
   :repositories {;"sonatype-oss-public" "https://oss.sonatype.org/content/groups/public/"
                  "sonatype-nexus-snapshots" "https://oss.sonatype.org/content/repositories/snapshots"
                  }
