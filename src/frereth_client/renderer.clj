@@ -60,16 +60,26 @@ for that matter, that such a connection failed)."
     (log/info "Kicking off heartbeat with renderer")
     (renderer-heartbeats chan ctx socket)
 
-    (throw (RuntimeException. "How does the rest of this actually work?"))
-
-    ;; b) Switch to dispatching messages between the channel
-    ;; and socket.
-    ;; c) Receive a quit message from the channel: notify
-    ;; the renderer that it's time to exit.
-    ;; d) Exit.
-
-    (go (loop [msg (<! chan)]
-          ;; Important:
-          ;; pretty much all operations involved here should
-          ;; depend on some variant of alt and a timeout.
-          (throw (RuntimeException. "Do something not-stupid"))))))
+    ;; Important:
+    ;; pretty much all operations involved here should
+    ;; depend on some variant of alt and a timeout.
+    (go
+     (loop []
+       ;; Switch to dispatching messages between the channel
+       ;; and socket.
+       (let [to (timeout (config/server-timeout))
+             [msg src] (alts! [channel to])]
+         (if (not= src to)
+           ;; Receive a quit message from the channel: notify
+           ;; the renderer that it's time to exit.
+           ;; For now, just act as a straight conduit
+           (mq/send socket msg)
+           (do
+             ;; If we start getting communication timeouts,
+             ;; really want to be smart about it. This involves
+             ;; command/control stuff from the client.
+             (println "Getting ready to transmit a keyword")
+             (mq/send socket :server-delay)
+             (println "How well did that work?"))))
+       ;; For now, just make it an infinite loop
+       (recur)))))

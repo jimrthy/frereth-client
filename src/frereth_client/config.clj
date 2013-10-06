@@ -15,3 +15,10 @@
 
 (defn server-url []
   (str "tcp://localhost:" (server-port)))
+
+(defn server-timeout
+  "How long should the client wait, as a baseline, before
+notifying the renderer that there are communications issues 
+with the server?"
+  []
+  50)
