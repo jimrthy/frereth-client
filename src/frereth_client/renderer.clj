@@ -48,12 +48,20 @@ for that matter, that such a connection failed)."
           (when (= ch :default)
             (recur))))))))
 
-(defn fsm [ctx channel]
-  (let [;; It seems more than a little wrong to be setting up the renderer
-        ;; socket here. It doesn't need to be so widely available.
-        ;; All communication with it should go through the renderer-channel.
-        ;; FIXME: Make that so.
-        socket (mq/bound-socket ctx :dealer (config/render-url))]
+(defn fsm
+  "This name isn't really all that well.
+This function kicks off background threads to translate communications
+between the front-end renderer and the server.
+
+Naive in that it ignores that multiple servers might (and probably
+should) be involved.
+
+More naive in that there's no possibility of cleanup."
+  [ctx channel]
+  ;; FIXME: Build socket during start. Stop it and release it
+  ;; for GC during stop. The current approach is just begging
+  ;; for failures when I try to run a reset.
+  (let [socket (mq/bound-socket ctx :dealer (config/render-url))]
 
     ;; The basic idea that I want to do is:
 
@@ -70,16 +78,18 @@ for that matter, that such a connection failed)."
        (let [to (timeout (config/server-timeout))
              [msg src] (alts! [channel to])]
          (if (not= src to)
-           ;; Receive a quit message from the channel: notify
-           ;; the renderer that it's time to exit.
-           ;; For now, just act as a straight conduit
-           (mq/send socket msg)
+           (do
+             ;; Receive a quit message from the channel: notify
+             ;; the renderer that it's time to exit.
+             ;; For now, just act as a straight conduit
+             (log/info (format "Sending {0} to the renderer" msg))
+             (mq/send socket msg))
            (do
              ;; If we start getting communication timeouts,
              ;; really want to be smart about it. This involves
              ;; command/control stuff from the client.
-             (println "Getting ready to transmit a keyword")
+             (log/trace "Getting ready to transmit a keyword")
              (mq/send socket :server-delay)
-             (println "How well did that work?"))))
+             (log/trace "How well did that work?"))))
        ;; For now, just make it an infinite loop
        (recur)))))
