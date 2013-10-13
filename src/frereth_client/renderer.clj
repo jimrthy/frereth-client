@@ -2,7 +2,8 @@
   (:require [clojure.core.async :refer :all]
             [clojure.tools.logging :as log]
             [cljeromq.core :as mq]
-            [frereth-client.config :as config])
+            [frereth-client.config :as config]
+            [frereth-client.translator :as trnsltr])
   (:gen-class))
 
 (defn renderer-heartbeats
@@ -46,8 +47,13 @@ for that matter, that such a connection failed)."
           (mq/send socket "PONG")
 
           (do
-            ;; FIXME: Almost definitely want to run this through a translator
-            (>!! control-chan input))))
+            ;; FIXME: There's something that's completely and totally wrong here.
+            ;; I'm listening and writing to the same channel here. This is really
+            ;; just a feedback loop.
+            ;; Really need to re-think this architecture:
+            ;; Right now, my goesintas are just reading from the goesouttas.
+            (>!! control-chan (trnsltr/client->server input))
+            (throw (RuntimeException. "Start with that")))))
 
       ;; Seems like there must be an easier way to poll for an existing message.
       ;; 1 ms here isn't all that big a deal, but this still seems like a waste
@@ -89,11 +95,9 @@ More naive in that there's no possibility of cleanup."
                  [msg src] (alts! [channel to])]
              (if (not= src to)
                (do
-                 (mq/send socket msg)
+                 (mq/send socket (trnsltr/server->client msg))
                  (if (not= msg :client-exit)
                    ;; FIXME: Need to run this through the translator!
-                   (do (mq/send socket msg)
-                       (recur))
                    (do
                      ;; Receive a quit message from the channel: notify
                      ;; the renderer that it's time to exit.
@@ -111,6 +115,7 @@ More naive in that there's no possibility of cleanup."
                  ;; of messages (especially things like keywords) is (hopefully was)
                  ;; on very shaky ground.
                  (log/trace "Getting ready to transmit a keyword")
+                 ;; FIXME: Do I want to do this at all?
                  (mq/send socket :server-delay)
                  (log/trace "How well did that work?")
                  (recur)))))
