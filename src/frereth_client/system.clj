@@ -1,8 +1,9 @@
 (ns frereth-client.system
   (:gen-class)
-  (:require [frereth-client.config :as config]
+  (:require [frereth-client.communicator :as comm]
+            [frereth-client.config :as config]
             [frereth-client.renderer :as render]
-            [cljeromq.core :as mq]
+            [frereth-client.server :as srvr]
             [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
@@ -19,16 +20,16 @@
          ;; leaving this in place and open.
          ;; Oh well. It's an obvious back door and easy enough to close.
          :controller (atom nil)
-         ;; For handling renderer communication.
-         :renderer-channel (atom nil)
-         ;; Owns the sockets and manages communications
-         :messaging-context (atom nil)
 
-         ;; Socket to connect to the mastermind where all the "real" processing
-         ;; happens
-         ;; TODO: Is there any reason for this to be so visible?
-         :local-server-socket (atom nil)
-         ;; Q: Do I want to track sockets connected to other servers here?
+         ;; For handling communication back and forth with the renderer
+         :renderer-channel (atom nil)
+
+         ;; Owns the sockets and manages communications
+         ;; TODO: This now represents an atom that contains other
+         ;; atoms. Seems like a bad idea.
+         :messaging (atom (comm/init))
+
+         ;; Q: Where do I want to track sockets connected to other servers?
          ;; A: They should all go away when the context is destroyed...but
          ;; there are issues and memory/resource leaks that can happen if
          ;; I'm not careful. Plus trying to destroy the context while they're
@@ -38,37 +39,26 @@
     (log/info "Client Initialized")
     result))
 
-(defn- negotiate-local-connection
-  "Tell local server who we are.
-FIXME: This doesn't really seem to belong here.
-But FI...I'm getting the rope thrown across the gorge."
-  [socket]
-  ;; This seems silly-verbose.
-  ;; But, we do need to verify that the server is present
-  (mq/send socket :ohai)
-  (let [resp (mq/recv socket)]
-    (assert (= resp :oryl?)))
-  (mq/send (list :icanhaz? {:me-speekz {:frereth [0 0 1]}}))
-  (mq/recv socket))
-
 (defn start
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
   [universe]
   (log/info "Starting Frereth Client")
   (letfn [(check-not [key]
+            (log/trace "Verifying that" key "is nil")
             (assert (nil? @(key universe))))]
-    (doseq [k [:controller :renderer-channel
-               :messaging-context :local-server-socket]]
+    (doseq [k [:controller :renderer-channel]]
       (check-not k)))
 
   (log/info "Building network connections")
-  (let [;; Q: Is there any possible reason to have more than 1 thread here?
-        ;; A: Of course. Should probably make this configurable.
-        ;; Which, realistically, means that there needs to be a way to
-        ;; change this on the fly.
-        ;; Q: How can I tell whether more threads might help?
-        ctx (mq/context 1)
+  (swap! (:messaging universe) comm/start)
+  
+  (let [ctx (comm/get-context @(:messaging universe))
+        ;; TODO: It seems to make a lot more sense to build the async channel to the
+        ;; renderer in communicator also.
+        ;; Or maybe the renderer.
+        ;; Wherever. It just does not belong in here...this namespace should
+        ;; really just be glue code.
         renderer-channel (async/chan)]
     ;; Provide some feedback to the renderer ASAP
     (render/fsm ctx renderer-channel)
@@ -81,19 +71,32 @@ and start it running. Returns an updated instance of the system."
 
            ;; Want to start responding to the renderer ASAP.
            :renderer-channel (atom renderer-channel)
-           :controller (atom (nrepl/start-server :port (config/control-port)))
-           :messaging-context (atom ctx)
-           :local-server-socket (atom (mq/connected-socket ctx :req
-                                                           (config/server-url)))}]
+
+           ;; The REPL handled by controller might or might not be an
+           ;; external connection. So it might (or might not) make a lot
+           ;; more sense to build it in communicator.
+           :controller (atom (nrepl/start-server :port (config/control-port)))}]
       (log/trace "Bare minimum networking configured")
       (try
+        ;; TODO: This desperately needs to move into the server namespace.
         (log/trace "Negotiating connection with local server")
         (let [initial-screen
-              (negotiate-local-connection @(:local-server-socket connections))]
+              (srvr/negotiate-local-connection @(:local-server-socket connections))]
           (log/trace "Negotiation succeeded")
+          ;; FIXME: This next piece is a bigger deal than it looks.
+          ;; The bulk of what the client should do involves
+          ;; transferring data back and forth between the renderer
+          ;; and the server(s).
+          ;; Along with things like translations for different protocols,
+          ;; scripting, and pretty much everything that's actually interesting
+          ;; on the client (except for the obvious UI parts).
+
+          ;; Really need to set that up to start happening here.
+          ;; It's almost a matter of setting up the sockets to just forward
+          ;; information back and forth.
+          ;; FIXME: Make that happen.
+
           ;; TODO: Add a timeout handler.
-          ;; Actually, that's such a vital piece that I'm surprised it isn't
-          ;; built directly into core.async.
           (async/>!! renderer-channel initial-screen))
         (catch RuntimeException ex
           ;; Surely I can manage better error reporting
@@ -109,51 +112,36 @@ and start it running. Returns an updated instance of the system."
   (log/trace "Closing REPL socket")
   (if-let [connection-holder (:controller universe)]
     (do
-      (#_ (try
-            (log/trace "Getting ready to stop nrepl")
-            (when-let [connection @connection-holder]
-              (io! (nrepl/stop-server connection)))
-            (log/trace "NREPL stopped")
-            (catch RuntimeException ex
-              ;; Q: Do I actually care about this?
-              ;; A: It seems at least mildly important, especially
-              ;; over the long haul. Like, e.g. unbinding socket
-              ;; connections
-              ;; Q: Why aren't I catching this?
-              ;; A: I am. I'm just getting further errors later.
-              (log/warn ex "\nTrying to stop the nrepl server"))))
-      (mq/close @connection-holder)
+      #_(try
+          (log/trace "Getting ready to stop nrepl")
+          (when-let [connection @connection-holder]
+            (io! (nrepl/stop-server connection)))
+          (log/trace "NREPL stopped")
+          (catch RuntimeException ex
+            ;; Q: Do I actually care about this?
+            ;; A: It seems at least mildly important, especially
+            ;; over the long haul. Like, e.g. unbinding socket
+            ;; connections
+            ;; Q: Why aren't I catching this?
+            ;; A: I am. I'm just getting further errors later.
+            (log/warn ex "\nTrying to stop the nrepl server")))
       (log/trace "NIL'ing out the rendering socket")
       (swap! connection-holder (fn [_] nil)))
     (log/trace "No existing connection...this seems problematic")))
-
-(defn- kill-local-server-connection
-  "Free up the socket that's connected to the 'local' server.
-I suspect this thing's totally jacked up."
-  [universe]
-  (log/trace "Killing connection to 'local server'")
-  (try
-    (when-let [local-server-atom (:local-server-socket universe)]
-      (when-let [local-server-port @local-server-atom]
-        (log/trace "Closing local server port")
-        (.close local-server-port)
-        (log/trace "Resetting local server port")
-        (swap! local-server-atom (fn [_] nil))))
-    (log/trace "Connection to local server stopped")))
 
 (defn stop-renderer-connection [universe]
   (log/trace "Stopping renderer connection")
   (let [c @(:renderer-channel universe)]
     ;; Yes, this is synchronous and blocking
     (async/>!! c :client-exit)
-    (let [s @(:renderer-connection universe)]
-      (mq/close s))))
 
-(defn kill-messaging [universe]
-    (log/trace "Closing messaging context")
-    (when-let [ctx-atom (:messaging-context universe)]
-      (when-let [ctx @ctx-atom]
-        (mq/terminate ctx))))
+    ;; TODO: So...does the other side actually close the channel?
+    (throw (RuntimeException. "Make that happen"))
+    ))
+
+(defn kill-external-messaging [universe]
+  "Stop all the pieces that communicate with the outside world"
+  (swap! (:messaging universe) (comm/stop (:messaging universe))))
 
 (defn stop
   "Performs side-effects to shut down the system and release its
@@ -164,16 +152,15 @@ resources. Returns an updated instance of the system, ready to re-start."
     (warn-renderer-about-shutdown @(:renderer-channel universe))
 
     (kill-repl universe)
-    (kill-local-server-connection universe)
     (stop-renderer-connection universe)
-    (kill-messaging)
+    (kill-external-messaging)
 
     (log/trace "Setting up dead replacement system")
     ;; It seems more than a little wrong to just dump the existing system to
     ;; be garbage collected. Odds are, though, that's probably exactly
     ;; what I want to happen in almost all cases.
     (let [result (init)]
-      (log/trace "Frereth Client Stopped")
+      (log/info "Frereth Client Stopped")
       result)))
 
 
