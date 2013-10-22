@@ -1,11 +1,3 @@
-;; Dependencies that were needed for cljeromq, when I was using
-;; it as a git dependency. Hopefully they can just completely
-;; and totally go away.
-(comment
-  ;;[org.zeromq/jzmq "2.2.1"]
-  [org.jeromq/jeromq "0.3.0-SNAPSHOT"]
-  [org.zeromq/cljzmq "0.1.1" :exclusions [org.zeromq/jzmq]])
-
 
 (defproject frereth-client "0.1.0-SNAPSHOT"
   :description "You might think of this as the Web Kit piece, although that's really far too grandiose."
@@ -27,7 +19,11 @@
                  ;; A: Pretty darn high.
                  [org.clojure/tools.nrepl "0.2.3"]
                  ;; TODO: Debug profile only
-                 [org.clojure/tools.trace "0.7.6"]]
+                 [org.clojure/tools.trace "0.7.6"]
+                 ;; FIXME: Almost definitely debug profile
+                 ;; only...except that making tracing disappear
+                 ;; could get ugly quickly
+                 [spyscope "0.1.3"]]
   ;;:git-dependencies [["git@github.com:jimrthy/cljeromq.git"]]
   :main frereth-client.core
   ;;:plugins [[lein-git-deps "0.0.1-SNAPSHOT"]]
@@ -42,8 +38,5 @@
                                   [org.clojure/java.classpath "0.2.0"]]
                    :injections [(require 'night-vision.goggles)
                                 (require 'clojure.pprint)]}}
-  :repositories {;"sonatype-oss-public" "https://oss.sonatype.org/content/groups/public/"
-                 "sonatype-nexus-snapshots" "https://oss.sonatype.org/content/repositories/snapshots"
-                 }
-  ;;:source-paths ["src" ".lein-git-deps/cljeromq/src"]
-  )
+  :repl-options {:init-ns user}
+  :repositories {"sonatype-nexus-snapshots" "https://oss.sonatype.org/content/repositories/snapshots"})
