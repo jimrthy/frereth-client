@@ -120,11 +120,11 @@ More naive in that there's no possibility of cleanup."
                  (log/trace "How well did that work?")
                  (recur)))))
          (finally
-           (mq/close socket))))
+           (mq/close! socket))))
 
       (catch Throwable ex
         ;; Should only get into here if setting up the heartbeat failed.
         ;; The go block should be running in its own thread. If it
         ;; throws, we should get into java's "Unhandled exception" handler.
-        (mq/close socket)
+        (mq/close! socket)
         (throw)))))

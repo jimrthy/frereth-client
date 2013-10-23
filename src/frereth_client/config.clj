@@ -13,7 +13,7 @@
 (defn render-url []
   (str "tcp://localhost:" (renderer-port)))
 
-(defn server-url []
+(defn local-server-url []
   (str "tcp://localhost:" (server-port)))
 
 (defn server-timeout

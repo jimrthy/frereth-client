@@ -39,6 +39,9 @@
     (log/info "Client Initialized")
     result))
 
+;;; This kind of convoluted start/stop has been recommended as a symptom
+;;; that I need to be using prismatic/plumbing.
+;;; TODO: Look into that.
 (defn start
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
