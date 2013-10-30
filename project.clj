@@ -28,14 +28,16 @@
   :main frereth-client.core
   ;;:plugins [[lein-git-deps "0.0.1-SNAPSHOT"]]
   :profiles {:dev {:source-paths ["dev"]
-                   :dependencies [;; TODO: expectations isn't working for me. Why am I still trying to use it?
+                   :dependencies [[clj-ns-browser "1.3.1"]
+                                  ;; TODO: expectations isn't working for me. Why am I still trying to use it?
                                   ;; Really should switch to either midje or straight
                                   ;; clojure.test. Depends on how that works out with
                                   ;; frereth-server.
                                   [expectations "1.4.49"]
                                   [night-vision "0.1.0-SNAPSHOT"]
                                   [org.clojure/tools.namespace "0.2.3"]
-                                  [org.clojure/java.classpath "0.2.0"]]
+                                  [org.clojure/java.classpath "0.2.0"]
+                                  [ritz/ritz-debugger "0.7.0"]]
                    :injections [(require 'night-vision.goggles)
                                 (require 'clojure.pprint)]}}
   :repl-options {:init-ns user}
