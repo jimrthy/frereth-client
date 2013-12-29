@@ -62,7 +62,12 @@ renderer sockets...I think."})
       (throw (RuntimeException. "Trying to start networking when there are live server connections"))))
 
   ;; Q: Is there any possible reason to have more than 1 thread here?
-  ;; A: Of course. Should probably make this configurable.
+  ;; A: Of course.
+  ;; That's really the entire point to this: shuffling messages between renderers and servers.
+  ;; Well, at least at first. Step Two will be to make this actually interpret the data
+  ;; that's going back and forth. Renderers shouldn't have the vaguest idea what they're
+  ;; rendering.
+  ;; Should probably make this configurable.
   ;; Which, realistically, means that there needs to be a way to
   ;; change this on the fly.
   ;; Q: How can I tell whether more threads might help?

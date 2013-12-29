@@ -19,13 +19,13 @@ for that matter, that such a connection failed)."
  ;; with peril. Which is why I'm trying to get a rope thrown
  ;; across first.
 
- (log/info "Beginning renderer heartbeat")
  (async/go
-  (let [sock (mq/bound-socket ctx :rep (config/render-url-from-renderer))]
+  (let [url (config/render-url-from-renderer)
+        sock (mq/bound-socket ctx :rep url)]
+    (log/info "Listening for renderer heartbeat on " url)
     (mq/with-poller [renderer-heartbeat ctx sock]
-      (loop []
-
-        (log/info "Waiting on renderer")
+      (loop [n 0
+             previous-report-time (System/nanoTime)]
         (let [incoming-heartbeats
               (mq/poll renderer-heartbeat (config/renderer-pulse))]
           (when (> incoming-heartbeats 0)
@@ -64,13 +64,21 @@ for that matter, that such a connection failed)."
         (let [to (async/timeout 1)]
           (let [[v ch] (alts! [control-chan] :default nil)]
             (when (= ch :default)
-              (recur)))))))))
+              ;; FIXME: Each call to this can take > 1 ms. Don't do this sort of timing
+              ;; for real
+              (let [current-time (System/nanoTime)
+                    next-frame  (> (- current-time previous-report-time)
+                                        15000000000)]
+                (if next-frame
+                  (do
+                    (log/info "Frame #" n)
+                    (recur (inc n) current-time))
+                  (recur n previous-report-time)))))))))))
 
 ;;; TODO: Come up with a better name for the next function.
 ;;; coupling seems like a likely choice.
 (defn build-proxy
-  "This name was chosen poorly.
-This function kicks off background threads to translate communications
+  "This function kicks off background threads to translate communications
 between the front-end renderer and the server.
 
 Naive in that it ignores that multiple servers might (and probably
@@ -90,10 +98,9 @@ the form of multiple windows) as well."
   ;; yet.
 
 
-  (log/info "Kicking off heartbeat with renderer")
   (renderer-heartbeats channel ctx)
 
-  (log/trace "Entering communications loop with renderer")
+  (log/info "Entering communications loop with renderer")
   (async/go
    ;; Important:
    ;; pretty much all operations involved here should
