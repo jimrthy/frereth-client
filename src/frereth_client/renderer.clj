@@ -3,7 +3,9 @@
             [clojure.tools.logging :as log]
             [cljeromq.core :as mq]
             [frereth-client.config :as config]
-            [frereth-client.translator :as trnsltr])
+            [frereth-client.translator :as trnsltr]
+            [ribol.core :refer :all]
+            [taoensso.timbre :as timbre])
   (:gen-class))
 
 (defn renderer-heartbeats
@@ -53,7 +55,7 @@ for that matter, that such a connection failed)."
             ;; Really need to re-think this architecture:
             ;; Right now, my goesintas are just reading from the goesouttas.
             (async/>!! control-chan (trnsltr/client->server input))
-            (throw (RuntimeException. "Start with that")))))
+            (raise :start-here))))
 
       ;; Seems like there must be an easier way to poll for an existing message.
       ;; 1 ms here isn't all that big a deal, but this still seems like a waste
