@@ -7,11 +7,17 @@
 ;; Wrapping them in functions makes it trivial to swap out
 ;; something more useful when there's a reason.
 (defn control-port [] 7839)
-(defn renderer-port [] 7840)
+(defn ->renderer-port [] 7840)
 (defn server-port [] 7841)
+(defn <-renderer-port [] 7842)
 
-(defn render-url []
-  (str "tcp://localhost:" (renderer-port)))
+;;; N.B. Want to allow remote renderers the possibility to connect.
+;;; That really gets into advanced functionality, though.
+(defn render-url-from-server []
+  (str "tcp://localhost:" (->renderer-port)))
+
+(defn render-url-from-renderer []
+  (str "tcp://localhost:" (<-renderer-port)))
 
 (defn local-server-url []
   (str "tcp://localhost:" (server-port)))
@@ -20,5 +26,11 @@
   "How long should the client wait, as a baseline, before
 notifying the renderer that there are communications issues 
 with the server?"
+  []
+  50)
+
+(defn renderer-pulse
+  "How many milliseconds should the heartbeat listener wait for the renderer,
+between checking for an exit signal"
   []
   50)

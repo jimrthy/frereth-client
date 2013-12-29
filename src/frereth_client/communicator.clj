@@ -14,11 +14,6 @@ Well, obviously I could. Do I want to?"
   {:context (atom nil)
    :local-server (atom nil)
    :server-sockets (atom [])
-   ;; Important implementation note:
-   ;; renderer-socket is bound. Can easily have multiple renderers connected
-   ;; to a single client. Multiplexing out to them becomes an interesting
-   ;; opportunity.
-   :renderer-socket (atom nil)
    :command-channel (atom nil)})
 
 (defn add-server!
@@ -44,6 +39,8 @@ most appropriate to this server. This is really just a minimalist version."
 (defn translate 
   "This is where the vast majority of its life will be spent"
   [system]
+  (raise :broken {:reason "0mq sockets are not thread safe. Really need @ least 2
+renderer sockets...I think."})
   (let [control @(:command-channel system)
         renderer @(:renderer-socket system)]
     (async/go
@@ -52,7 +49,8 @@ most appropriate to this server. This is really just a minimalist version."
      (loop [servers (vals @(:server-sockets system))]
        ;; TODO: Poll servers and renderer. Check for anything on the control channel.
        ;; Do any translation needed.
-       (raise :not-implemented)))))
+       (comment (raise :not-implemented))
+       (timbre/warn "Have to start listening for servers sooner or later")))))
 
 (defn start [system]
   (when @(:context system)
@@ -62,8 +60,6 @@ most appropriate to this server. This is really just a minimalist version."
   (let [server-connections @(:server-sockets system)]
     (when (> 0 (count server-connections))
       (throw (RuntimeException. "Trying to start networking when there are live server connections"))))
-  (when @(:renderer-socket system)
-    (throw (RuntimeException. "Trying to start networking when we still have a live renderer connection")))
 
   ;; Q: Is there any possible reason to have more than 1 thread here?
   ;; A: Of course. Should probably make this configurable.
@@ -85,17 +81,18 @@ most appropriate to this server. This is really just a minimalist version."
     (swap! (:local-server system) (fn [_]
                                     (mq/connected-socket ctx :req (config/local-server-url))))
 
-    ;; Dealer probably isn't the best choice here. Or maybe it is.
-    ;; I want a multi-plexer, but I really want out-going messages to
-    ;; go to everyone connected. So I really need a :pub socket for that,
-    ;; with something like a dealer to handle incoming messages.
-    (let [renderer (mq/connected-socket ctx :dealer (config/render-url))]
-      (reset! (:renderer-socket system) renderer)
+    ;; Actual communication happens in background threads.
+    (comment
+      ;; Dealer probably isn't the best choice here. Or maybe it is.
+      ;; I want a multi-plexer, but I really want out-going messages to
+      ;; go to everyone connected. So I really need a :pub socket for that,
+      ;; with something like a dealer to handle incoming messages.
+      (let [renderer (mq/connected-socket ctx :dealer (config/render-url))]
+        (reset! (:renderer-socket system) renderer)))
 
-      (let [command-channel (async/chan)]
-        (reset! (:command-channel system) command-channel)
-        (async/thread-call (fn []
-                             (translate system)))))
+    (let [command-channel (async/chan)]
+      (reset! (:command-channel system) command-channel))
+
     system))
 
 (defn get-context [system]
@@ -117,7 +114,7 @@ most appropriate to this server. This is really just a minimalist version."
           (mq/close! local-server)
           (reset! local-server-atom nil)))
 
-      ;; FIXME: Close renderer socket
+      ;; FIXME: Close renderer sockets!
 
       (log/trace "Closing messaging context")
       (mq/terminate! ctx))))

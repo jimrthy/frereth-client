@@ -7,7 +7,9 @@
   :dependencies [[byte-transforms "0.1.0"]
                  [com.taoensso/timbre "2.7.1"]
                  [im.chit/ribol "0.3.3"]
-                 [jimrthy/cljeromq "0.1.0-SNAPSHOT"]
+                 ;; I should really just get this library published so it quits
+                 ;; being painful for me to deal with.
+                 [org.clojars.jimrthy/cljeromq "0.1.0-SNAPSHOT"]
                  [org.clojure/tools.logging "0.2.6"]
                  [org.clojure/clojure "1.5.1"]
                  [org.clojure/core.async "0.1.267.0-0d7780-alpha"]

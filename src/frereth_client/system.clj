@@ -64,7 +64,7 @@ and start it running. Returns an updated instance of the system."
         ;; really just be glue code.
         renderer-channel (async/chan)]
     ;; Provide some feedback to the renderer ASAP
-    (render/fsm ctx renderer-channel)
+    (render/build-proxy ctx renderer-channel)
     (let [connections
           {;; Q: Is there any real point to putting these into atoms?
            ;; A: Duh. There aren't many alternatives for changing them.
@@ -83,24 +83,28 @@ and start it running. Returns an updated instance of the system."
       (try
         ;; TODO: This desperately needs to move into the server namespace.
         (log/trace "Negotiating connection with local server")
-        (let [initial-screen
-              (srvr/negotiate-local-connection @(:local-server-socket connections))]
-          (log/trace "Negotiation succeeded")
-          ;; FIXME: This next piece is a bigger deal than it looks.
-          ;; The bulk of what the client should do involves
-          ;; transferring data back and forth between the renderer
-          ;; and the server(s).
-          ;; Along with things like translations for different protocols,
-          ;; scripting, and pretty much everything that's actually interesting
-          ;; on the client (except for the obvious UI parts).
+        (if-let [initial-screen
+                 (if-let [local-server-sock-atom (:local-server-socket connections)]
+                   (srvr/negotiate-local-connection @local-server-sock-atom)
+                   (log/error "No connection to local server"))]
+          (do
+            (log/trace "Negotiation succeeded")
+            ;; FIXME: This next piece is a bigger deal than it looks.
+            ;; The bulk of what the client should do involves
+            ;; transferring data back and forth between the renderer
+            ;; and the server(s).
+            ;; Along with things like translations for different protocols,
+            ;; scripting, and pretty much everything that's actually interesting
+            ;; on the client (except for the obvious UI parts).
 
-          ;; Really need to set that up to start happening here.
-          ;; It's almost a matter of setting up the sockets to just forward
-          ;; information back and forth.
-          ;; FIXME: Make that happen.
+            ;; Really need to set that up to start happening here.
+            ;; It's almost a matter of setting up the sockets to just forward
+            ;; information back and forth.
+            ;; FIXME: Make that happen.
 
-          ;; TODO: Add a timeout handler.
-          (async/>!! renderer-channel initial-screen))
+            ;; TODO: Add a timeout handler.
+            (async/>!! renderer-channel initial-screen))
+          (log/warn "Negotiation failed"))
         (catch RuntimeException ex
           ;; Surely I can manage better error reporting
           (log/trace "Negotiation failed")
