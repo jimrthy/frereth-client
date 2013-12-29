@@ -1,5 +1,5 @@
 (ns frereth-client.renderer
-  (:require [clojure.core.async :refer :all]
+  (:require [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [cljeromq.core :as mq]
             [frereth-client.config :as config]
@@ -18,7 +18,7 @@ for that matter, that such a connection failed)."
  ;; across first.
 
  (log/info "Beginning renderer heartbeat")
- (go
+ (async/go
   (mq/with-poller [renderer-heartbeat ctx socket]
     (loop []
 
@@ -52,12 +52,12 @@ for that matter, that such a connection failed)."
             ;; just a feedback loop.
             ;; Really need to re-think this architecture:
             ;; Right now, my goesintas are just reading from the goesouttas.
-            (>!! control-chan (trnsltr/client->server input))
+            (async/>!! control-chan (trnsltr/client->server input))
             (throw (RuntimeException. "Start with that")))))
 
       ;; Seems like there must be an easier way to poll for an existing message.
       ;; 1 ms here isn't all that big a deal, but this still seems like a waste
-      (let [to (timeout 1)]
+      (let [to (async/timeout 1)]
         (let [[v ch] (alts! [control-chan] {:default nil})]
           (when (= ch :default)
             (recur))))))))
@@ -80,19 +80,19 @@ More naive in that there's no possibility of cleanup."
 
     (log/info "Kicking off heartbeat with renderer")
     (try
-      (renderer-heartbeats chan ctx socket)
+      (renderer-heartbeats channel ctx socket)
 
       (log/trace "Entering communications loop with renderer")
       ;; Important:
       ;; pretty much all operations involved here should
       ;; depend on some variant of alt and a timeout.
-      (go
+      (async/go
        (try
          (loop []
            ;; Switch to dispatching messages between the channel
            ;; and socket.
-           (let [to (timeout (config/server-timeout))
-                 [msg src] (alts! [channel to])]
+           (let [to (async/timeout (config/server-timeout))
+                 [msg src] (async/alts! [channel to])]
              (if (not= src to)
                (do
                  (mq/send socket (trnsltr/server->client msg))
@@ -103,7 +103,7 @@ More naive in that there's no possibility of cleanup."
                      ;; the renderer that it's time to exit.
                      ;; For now, just act as a straight conduit
                      (log/info (format "Sending {0} to the renderer" msg))
-                     (close! channel)
+                     (async/close! channel)
                      ;; No recur...time to quit
                      )))
                (do

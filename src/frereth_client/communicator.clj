@@ -1,7 +1,10 @@
 (ns frereth-client.communicator
   (:require [cljeromq.core :as mq]
+            [clojure.core.async :as async]
             [clojure.tools.logging :as log]
-            [frereth-client.config :as config])
+            [frereth-client.config :as config]
+            [ribol.core :refer :all]
+            [taoensso.timbre :as timbre])
   (:gen-class))
 
 "Can I handle all of the networking code in here?
@@ -27,7 +30,7 @@ most appropriate to this server. This is really just a minimalist version."
                                           (assoc current uri sock)))
         system))
   ([system ctx uri]
-     (add-server system ctx uri :req)))
+     (add-server! system ctx uri :req)))
 
 (defn disconnect-server!
   [system uri]
@@ -36,7 +39,7 @@ most appropriate to this server. This is really just a minimalist version."
           (mq/close! sock))
         (swap! server-atoms #(dissoc % uri))
         system)
-    (error "Whoa! No associated server atom for network connections?!")))
+    (timbre/error "Whoa! No associated server atom for network connections?!")))
 
 (defn translate 
   "This is where the vast majority of its life will be spent"
@@ -46,10 +49,10 @@ most appropriate to this server. This is really just a minimalist version."
     (async/go
      ;; TODO: Honestly, the local server needs priority.
      ;; Put it in its own atom and check it before anything else.
-     (loop [servers (values @(:server-sockets system))]
+     (loop [servers (vals @(:server-sockets system))]
        ;; TODO: Poll servers and renderer. Check for anything on the control channel.
        ;; Do any translation needed.
-       ))))
+       (raise :not-implemented)))))
 
 (defn start [system]
   (when @(:context system)
@@ -109,10 +112,10 @@ most appropriate to this server. This is really just a minimalist version."
           (doseq [k (-> system :server-sockets deref)]
             (disconnect-server! system k))
           (reset! server-sockets-atom {})))
-      (when-let [local-server-atom (:local-server system)])
-      (when-let [local-server @local-server-atom]
-        (mq/close! local-server)
-        (reset! local-server-atom nil))
+      (when-let [local-server-atom (:local-server system)]
+        (when-let [local-server @local-server-atom]
+          (mq/close! local-server)
+          (reset! local-server-atom nil)))
 
       ;; FIXME: Close renderer socket
 

@@ -5,10 +5,12 @@
   :license {:name "Eclipse Public License"
             :url "http://http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[byte-transforms "0.1.0"]
+                 [com.taoensso/timbre "2.7.1"]
+                 [im.chit/ribol "0.3.3"]
                  [jimrthy/cljeromq "0.1.0-SNAPSHOT"]
                  [org.clojure/tools.logging "0.2.6"]
                  [org.clojure/clojure "1.5.1"]
-                 [org.clojure/core.async "0.1.222.0-83d0c2-alpha"]
+                 [org.clojure/core.async "0.1.267.0-0d7780-alpha"]
                  ;; Q: What are the odds that this is actually useful?
                  ;; (Nothing against nrepl, which is obviously awesome.
                  ;; Just that I have my doubts about its usefulness
@@ -19,11 +21,7 @@
                  ;; A: Pretty darn high.
                  [org.clojure/tools.nrepl "0.2.3"]
                  ;; TODO: Debug profile only
-                 [org.clojure/tools.trace "0.7.6"]
-                 ;; FIXME: Almost definitely debug profile
-                 ;; only...except that making tracing disappear
-                 ;; could get ugly quickly
-                 [spyscope "0.1.3"]]
+                 [org.clojure/tools.trace "0.7.6"]]
   ;;:git-dependencies [["git@github.com:jimrthy/cljeromq.git"]]
   :main frereth-client.core
   ;;:plugins [[lein-git-deps "0.0.1-SNAPSHOT"]]
