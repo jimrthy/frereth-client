@@ -11,14 +11,28 @@
 (defn server-port [] 7841)
 (defn <-renderer-port [] 7842)
 
-;;; N.B. Want to allow remote renderers the possibility to connect.
-;;; That really gets into advanced functionality, though.
+(defn messaging-threads
+  "How many threads should the messaging system use?"
+  []
+  ;; For now, just start with the default max
+  ;; recommended by 0mq:
+  ;; core_count - 1
+  (dec (.availableProcessors (Runtime/getRuntime))))
+
+;; Messages that originate in the client or server which
+;; go out to update the view get multicast through here.
 (defn render-url-from-server []
   (str "tcp://localhost:" (->renderer-port)))
 
 (defn render-url-from-renderer []
+  "Messages coming in from the renderer (AKA the View)
+come in through here"
   (str "tcp://localhost:" (<-renderer-port)))
 
+;; I have my doubts about whether I can get away with
+;; just one socket connected to the server(s). Or even
+;; one per server. But I'm going to try to make that
+;; happen.
 (defn local-server-url []
   (str "tcp://localhost:" (server-port)))
 

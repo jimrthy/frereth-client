@@ -1,15 +1,12 @@
 (ns frereth-client.system
-  (:gen-class)
   (:require [frereth-client.communicator :as comm]
             [frereth-client.config :as config]
             [frereth-client.renderer :as render]
             [frereth-client.server :as srvr]
             [clojure.core.async :as async]
-            [clojure.tools.logging :as log]
             [clojure.tools.nrepl.server :as nrepl]
-            ;; Q: Debug only??
-            [clojure.tools.trace :as trace])
-  (:use [frereth-client.utils]))
+            [taoensso.timbre :as log])
+  (:gen-class))
 
 (defn init 
   "Returns a new instance of the whole application"
@@ -20,7 +17,7 @@
          ;; leaving this in place and open.
          ;; Oh well. It's an obvious back door and easy enough to close.
          :controller (atom nil)
-
+                   
          ;; For handling communication back and forth with the renderer
          :renderer-channel (atom nil)
 
@@ -28,13 +25,6 @@
          ;; TODO: This now represents an atom that contains other
          ;; atoms. Seems like a bad idea.
          :messaging (atom (comm/init))
-
-         ;; Q: Where do I want to track sockets connected to other servers?
-         ;; A: They should all go away when the context is destroyed...but
-         ;; there are issues and memory/resource leaks that can happen if
-         ;; I'm not careful. Plus trying to destroy the context while they're
-         ;; lingering can lock the system.
-         ;; It's an ugly question.
          }]
     (log/info "Client Initialized")
     result))
@@ -42,6 +32,7 @@
 ;;; This kind of convoluted start/stop has been recommended as a symptom
 ;;; that I need to be using prismatic/plumbing.
 ;;; TODO: Look into that.
+         
 (defn start
   "Performs side effects to initialize the system, acquire resources,
 and start it running. Returns an updated instance of the system."
@@ -129,8 +120,6 @@ and start it running. Returns an updated instance of the system."
             ;; A: It seems at least mildly important, especially
             ;; over the long haul. Like, e.g. unbinding socket
             ;; connections
-            ;; Q: Why aren't I catching this?
-            ;; A: I am. I'm just getting further errors later.
             (log/warn ex "\nTrying to stop the nrepl server")))
       (log/trace "NIL'ing out the rendering socket")
       (swap! connection-holder (fn [_] nil)))
@@ -146,8 +135,9 @@ and start it running. Returns an updated instance of the system."
     (throw (RuntimeException. "Make that happen"))
     ))
 
-(defn kill-external-messaging [universe]
+(defn kill-external-messaging
   "Stop all the pieces that communicate with the outside world"
+  [universe]
   (swap! (:messaging universe) (comm/stop (:messaging universe))))
 
 (defn stop
@@ -169,6 +159,4 @@ resources. Returns an updated instance of the system, ready to re-start."
     (let [result (init)]
       (log/info "Frereth Client Stopped")
       result)))
-
-
 

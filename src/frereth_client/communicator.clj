@@ -13,19 +13,20 @@ Well, obviously I could. Do I want to?"
 (defn init []
   {:context (atom nil)
    :local-server (atom nil)
-   :server-sockets (atom [])
-   :command-channel (atom nil)})
+   :renderer-publisher (atom nil)  ; Multicast messages to renderer(s)
+   :renderer-puller (atom nil)  ; Incoming messages from renderer(s)
+   :remote-servers (atom [])})
 
 (defn add-server!
   "Server handshake really should establish the communication style that's
 most appropriate to this server. This is really just a minimalist version."
-  ([system ctx uri type]
-      (let [sock (mq/connected-socket ctx type uri)]
-        (swap! (:server-sockets system) (fn [current]
-                                          (assoc current uri sock)))
-        system))
   ([system ctx uri]
-     (add-server! system ctx uri :req)))
+     (add-server! system ctx uri :req))
+  ([system ctx uri type]
+     (let [sock (mq/connected-socket ctx type uri)]
+       (swap! (:server-sockets system) (fn [current]
+                                         (assoc current uri sock)))
+       system)))
 
 (defn disconnect-server!
   [system uri]
@@ -36,28 +37,66 @@ most appropriate to this server. This is really just a minimalist version."
         system)
     (timbre/error "Whoa! No associated server atom for network connections?!")))
 
+(defn server->view!
+  "src has sent some kind of message. Forward it along to all views that might be interested.
+TODO: Don't trust raw data. Absolutely must be run through some sort of filter.
+Actually, this almost definitely requires a server that we know about,
+so we can do whatever data massaging is appropriate.
+YAGNI(yet)"
+  [src dst]
+  (when (mq/recv-more? src)
+    ;; TODO: How does this work out in practice, with multiple frames?
+    (mq/send dst (mq/recv src))
+    (recur src dst)))
+
+(defn view->servers!
+  "For starters, send everything to everyone.
+This is a bad approach.
+I think.
+If remotes is a router, this might be perfect."
+  [src home remotes]
+  (let [frames (mq/recv-all src)]
+    (mq/send-all home frames)
+    (mq/send-all remotes frames)))
+
 (defn translate 
-  "This is where the vast majority of its life will be spent"
-  [system]
-  (raise :broken {:reason "0mq sockets are not thread safe. Really need @ least 2
-renderer sockets...I think."})
-  (let [control @(:command-channel system)
-        renderer @(:renderer-socket system)]
-    (async/go
-     ;; TODO: Honestly, the local server needs priority.
-     ;; Put it in its own atom and check it before anything else.
-     (loop [servers (vals @(:server-sockets system))]
-       ;; TODO: Poll servers and renderer. Check for anything on the control channel.
-       ;; Do any translation needed.
-       (comment (raise :not-implemented))
-       (timbre/warn "Have to start listening for servers sooner or later")))))
+  "This is where the vast majority of its life will be spent.
+It's very tempting to run this in a background thread, especially since
+I foresee a bunch of other functionality happening in here. That just
+makes life drastically more complicated. So, for now, plan on polling
+it frequently."
+  ([system timeout]
+     (let [home (-> :local-server system deref)
+           view-pub (-> :renderer-publisher system deref)
+           view-pull (-> :renderer-puller system deref)
+           remote (-> :remote-servers system deref)
+           ;; Will be polling on home, pull, and the various remotes
+           n (count remote)
+           polled-sockets [home remote view-pull]
+           poller (mq/poller n)]
+       ;; I'm almost positive that I don't want to rebuild this
+       ;; every time through. But only almost.
+       (mq/socket-poller-in! polled-sockets)
+       (let [available-sockets (mq/poll poller)]
+         (when (> available-sockets 0)
+           ;; TODO: Need a smarter priortization scheme
+           ;; Messages from the local server are the top priority
+           (when (.pollin poller 0)
+             (server->view! home view-pub))
+           (when (.pollin poller 1)
+             (server->view! remote view-pub))
+           (when (.pollin poller 2)
+             (view->servers! view-pull home remote))))))
+  ([system]
+     (translate system 1)))
 
 (defn start [system]
   (when @(:context system)
     (throw (RuntimeException. "Trying to restart networking on a system that isn't dead")))
   (when-let [local-server @(:local-server system)]
     (throw (RuntimeException. "Trying to start networking when already connected to the local server")))
-  (let [server-connections @(:server-sockets system)]
+
+  (let [server-connections @(:remote-servers system)]
     (when (> 0 (count server-connections))
       (throw (RuntimeException. "Trying to start networking when there are live server connections"))))
 
@@ -73,30 +112,27 @@ renderer sockets...I think."})
   ;; Q: How can I tell whether more threads might help?
   ;; Q: When will it become worth the pain to scrap the existing context and
   ;; replace all the existing sockets on the fly?
-  (let [ctx (mq/context 1)]
+  (let [ctx (mq/context (config/messaging-threads))]
     (reset! (:context system) ctx)
 
-    ;; Add a socket to a local server
-    ;; FIXME: In all honesty, should do the server handshake, determine the
-    ;; appropriate socket type/url, then connect to that.
-    ;; That's more of a remote server thing, though.
-    ;; TODO: It's still pretty important.
-    (comment (add-server! system ctx (config/local-server-url) :req))
-    ;; Don't worry about remote servers yet
-    (swap! (:local-server system) (fn [_]
-                                    (mq/connected-socket ctx :req (config/local-server-url))))
+    ;; Don't worry about remote servers yet.
+    ;; Still. I almost definitely do *not* want a REQ socket.
+    (swap! (:local-server system)
+           (fn [_]
+             (mq/connected-socket ctx :req (config/local-server-url))))
 
-    ;; Actual communication happens in background threads.
-    (comment
-      ;; Dealer probably isn't the best choice here. Or maybe it is.
-      ;; I want a multi-plexer, but I really want out-going messages to
-      ;; go to everyone connected. So I really need a :pub socket for that,
-      ;; with something like a dealer to handle incoming messages.
-      (let [renderer (mq/connected-socket ctx :dealer (config/render-url))]
-        (reset! (:renderer-socket system) renderer)))
+    (swap! (:renderer-publisher system)
+           (fn [_]
+             (mq/bound-socket ctx :pub (config/render-url-from-server))))
+    (swap! (:renderer-puller system)
+           (fn [_]
+             (mq/bound-socket ctx :pull (config/render-url-from-renderer))))
 
-    (let [command-channel (async/chan)]
-      (reset! (:command-channel system) command-channel))
+    ;; Go ahead and create a router socket...which is going to be doing lots of
+    ;; connects. How will this work out in practice?
+    (swap! (:remote-servers system)
+           (fn [_]
+             (mq/socket ctx :router)))
 
     system))
 
