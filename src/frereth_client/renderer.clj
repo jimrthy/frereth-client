@@ -7,6 +7,8 @@
             [taoensso.timbre :as log])
   (:gen-class))
 
+(set! *warn-on-reflection* true)
+
 (defn renderer-heartbeats
   "Start exchanging heartbeats with the renderer over
 socket, until we get a notice over the channel that

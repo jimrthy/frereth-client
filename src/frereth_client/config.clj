@@ -4,6 +4,8 @@
 ;; numbers that (realistically) should be loaded from some
 ;; sort of "real" configuration (like a database) instead.
 
+(set! *warn-on-reflection* true)
+
 ;; Wrapping them in functions makes it trivial to swap out
 ;; something more useful when there's a reason.
 (defn control-port [] 7839)

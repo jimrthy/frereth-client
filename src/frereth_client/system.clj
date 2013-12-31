@@ -8,6 +8,8 @@
             [taoensso.timbre :as log])
   (:gen-class))
 
+(set! *warn-on-reflection* true)
+
 (defn init 
   "Returns a new instance of the whole application"
   []

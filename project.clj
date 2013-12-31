@@ -24,16 +24,9 @@
                  [org.clojure/tools.nrepl "0.2.3"]
                  ;; TODO: Debug profile only
                  [org.clojure/tools.trace "0.7.6"]]
-  ;;:git-dependencies [["git@github.com:jimrthy/cljeromq.git"]]
   :main frereth-client.core
-  ;;:plugins [[lein-git-deps "0.0.1-SNAPSHOT"]]
   :profiles {:dev {:source-paths ["dev"]
                    :dependencies [[clj-ns-browser "1.3.1"]
-                                  ;; TODO: expectations isn't working for me. Why am I still trying to use it?
-                                  ;; Really should switch to either midje or straight
-                                  ;; clojure.test. Depends on how that works out with
-                                  ;; frereth-server.
-                                  [expectations "1.4.49"]
                                   [night-vision "0.1.0-SNAPSHOT"]
                                   [org.clojure/tools.namespace "0.2.3"]
                                   [org.clojure/java.classpath "0.2.0"]

@@ -2,6 +2,8 @@
   (:require [cljeromq.core :as mq])
   (:gen-class))
 
+(set! *warn-on-reflection* true)
+
 (defn negotiate-local-connection
   "Tell local server who we are."
   [socket]

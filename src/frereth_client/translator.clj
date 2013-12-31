@@ -5,6 +5,8 @@
 At the very least, should be translating protocols for clients and servers
 that speak different 'languages'"
 
+(set! *warn-on-reflection* true)
+
 (defn server->client 
   "TODO: Need to be aware of context.
 Or do I?"

@@ -2,6 +2,8 @@
   (:gen-class)
   (:require [frereth-client.system :as system]))
 
+(set! *warn-on-reflection* true)
+
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]

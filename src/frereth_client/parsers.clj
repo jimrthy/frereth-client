@@ -1,5 +1,7 @@
 (ns frereth-client.parsers)
 
+(set! *warn-on-reflection* true)
+
 (defn clj->cl
   "The bare-bones minimalist version seems to involve translating
 clojure EDN syntax into the common-lisp equivalent then translating

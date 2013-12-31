@@ -10,6 +10,8 @@
 "Can I handle all of the networking code in here?
 Well, obviously I could. Do I want to?"
 
+(set! *warn-on-reflection* true)
+
 (defn init []
   {:context (atom nil)
    :local-server (atom nil)
