@@ -57,6 +57,17 @@ and start it running. Returns an updated instance of the system."
         ;; really just be glue code.
         renderer-channel (async/chan)]
     ;; Provide some feedback to the renderer ASAP
+    ;; TODO: I'm pretty sure I want to do something like this,
+    ;; but it should be calling communicator/translate instead.
+
+    ;; Actually, it's probably twistier than that. Want to wait for a connection
+    ;; to a [localhost] server and a renderer.
+    ;; Once we have them both, start calling translate between them.
+    ;; Which really should happen in another thread, but sockets aren't thread
+    ;; safe.
+    ;; Q: How does this actually work then?
+    (throw (RuntimeException. "Figure that out"))
+    
     (render/build-proxy ctx renderer-channel)
     (let [connections
           {;; Q: Is there any real point to putting these into atoms?

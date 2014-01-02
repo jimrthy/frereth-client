@@ -20,6 +20,11 @@ for that matter, that such a connection failed)."
   ;; with peril. Which is why I'm trying to get a rope thrown
   ;; across first.
 
+  ;; This conflicts with the PULL socket (:renderer-puller)
+  ;; that was created in communicator.clj.
+  ;; Actually, this entire thing might well be obsolete.
+
+  (throw (RuntimeException. "This is broken."))
   (async/go
    (let [url (config/render-url-from-renderer)
          sock (mq/bound-socket ctx :rep url)]

@@ -83,6 +83,7 @@ it frequently."
          (when (> available-sockets 0)
            ;; TODO: Need a smarter priortization scheme
            ;; Messages from the local server are the top priority
+           ;; TODO: Need to type-hint poller.
            (when (.pollin poller 0)
              (server->view! home view-pub))
            (when (.pollin poller 1)
