@@ -23,62 +23,62 @@ for that matter, that such a connection failed)."
   ;; This conflicts with the PULL socket (:renderer-puller)
   ;; that was created in communicator.clj.
   ;; Actually, this entire thing might well be obsolete.
+  (comment
+    (throw (RuntimeException. "This is broken."))
+    (async/go
+     (let [url (config/render-url-from-renderer)
+           sock (mq/bound-socket ctx :rep url)]
+       (log/info "Listening for renderer heartbeat on " url)
+       (mq/with-poller [renderer-heartbeat ctx sock]
+         (loop [n 0
+                previous-report-time (System/nanoTime)]
+           (let [incoming-heartbeats
+                 (mq/poll renderer-heartbeat (config/renderer-pulse))]
+             (when (> incoming-heartbeats 0)
+               (log/info "Responding to renderer")
 
-  (throw (RuntimeException. "This is broken."))
-  (async/go
-   (let [url (config/render-url-from-renderer)
-         sock (mq/bound-socket ctx :rep url)]
-     (log/info "Listening for renderer heartbeat on " url)
-     (mq/with-poller [renderer-heartbeat ctx sock]
-       (loop [n 0
-              previous-report-time (System/nanoTime)]
-         (let [incoming-heartbeats
-               (mq/poll renderer-heartbeat (config/renderer-pulse))]
-           (when (> incoming-heartbeats 0)
-             (log/info "Responding to renderer")
+               (loop [input (mq/recv sock)]
+                 (if (= input :PING)
+                   ;; And I really shouldn't just accept anything at all.
+                   ;; Want *some* sort of indication that the other side is
+                   ;; worth talking to.
+                   ;; For example...which drivers does it implement? Or some
+                   ;; such.
+                   ;; This should probably be an extremely momentous thing.
+                   ;; Especially since multiple clients should probably be
+                   ;; able to connect at the same time.
+                   ;; Then again, maybe that's the province of a plugin/alternative
+                   ;; renderer to tee/merge that sort of thing.
+                   (mq/send sock :PONG)
 
-             (loop [input (mq/recv sock)]
-               (if (= input :PING)
-                 ;; And I really shouldn't just accept anything at all.
-                 ;; Want *some* sort of indication that the other side is
-                 ;; worth talking to.
-                 ;; For example...which drivers does it implement? Or some
-                 ;; such.
-                 ;; This should probably be an extremely momentous thing.
-                 ;; Especially since multiple clients should probably be
-                 ;; able to connect at the same time.
-                 ;; Then again, maybe that's the province of a plugin/alternative
-                 ;; renderer to tee/merge that sort of thing.
-                 (mq/send sock :PONG)
-
-                 (do
-                   (mq/send sock :ACK)
-                   ;; FIXME: There's something that's completely and totally wrong here.
-                   ;; I'm listening and writing to the same channel here. This is really
-                   ;; just a feedback loop.
-                   ;; Really need to re-think this architecture:
-                   ;; Right now, my goesintas are just reading from the goesouttas.
-                   (async/>!! control-chan (trnsltr/client->server input))
-                   (raise :start-here)))
-               (raise :not-implemented)
-               (when (mq/recv-more? sock)
-                 (recur (mq/recv sock))))))
-
-         ;; Seems like there must be an easier way to poll for an existing message.
-         ;; 1 ms here isn't all that big a deal, but this still seems like a waste
-         (let [to (async/timeout 1)]
-           (let [[v ch] (alts! [control-chan] :default nil)]
-             (when (= ch :default)
-               ;; FIXME: Each call to this can take > 1 ms. Don't do this sort of timing
-               ;; for real
-               (let [current-time (System/nanoTime)
-                     next-frame  (> (- current-time previous-report-time)
-                                    15000000000)]
-                 (if next-frame
                    (do
-                     (log/info "Frame #" n)
-                     (recur (inc n) current-time))
-                   (recur n previous-report-time)))))))))))
+                     (mq/send sock :ACK)
+                     ;; FIXME: There's something that's completely and totally wrong here.
+                     ;; I'm listening and writing to the same channel here. This is really
+                     ;; just a feedback loop.
+                     ;; Really need to re-think this architecture:
+                     ;; Right now, my goesintas are just reading from the goesouttas.
+                     (async/>!! control-chan (trnsltr/client->server input))
+                     (raise :start-here)))
+                 (raise :not-implemented)
+                 (when (mq/recv-more? sock)
+                   (recur (mq/recv sock))))))
+
+           ;; Seems like there must be an easier way to poll for an existing message.
+           ;; 1 ms here isn't all that big a deal, but this still seems like a waste
+           (let [to (async/timeout 1)]
+             (let [[v ch] (alts! [control-chan] :default nil)]
+               (when (= ch :default)
+                 ;; FIXME: Each call to this can take > 1 ms. Don't do this sort of timing
+                 ;; for real
+                 (let [current-time (System/nanoTime)
+                       next-frame  (> (- current-time previous-report-time)
+                                      15000000000)]
+                   (if next-frame
+                     (do
+                       (log/info "Frame #" n)
+                       (recur (inc n) current-time))
+                     (recur n previous-report-time))))))))))))
 
 (defn build-proxy
   "This function kicks off background threads to translate communications

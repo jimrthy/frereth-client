@@ -66,7 +66,7 @@ and start it running. Returns an updated instance of the system."
     ;; Which really should happen in another thread, but sockets aren't thread
     ;; safe.
     ;; Q: How does this actually work then?
-    (throw (RuntimeException. "Figure that out"))
+    (comment (throw (RuntimeException. "Figure that out")))
     
     (render/build-proxy ctx renderer-channel)
     (let [connections
@@ -117,7 +117,9 @@ and start it running. Returns an updated instance of the system."
       connections)))
 
 (defn- warn-renderer-about-shutdown [channel]
-  (async/go (async/>! channel :exit-pending)))
+  (if channel
+    (async/go (async/>! channel :exit-pending))
+    (log/error "Missing renderer channel. How did we get into here?")))
 
 (defn- kill-repl [universe]
   (log/trace "Closing REPL socket")
@@ -140,13 +142,16 @@ and start it running. Returns an updated instance of the system."
 
 (defn stop-renderer-connection [universe]
   (log/trace "Stopping renderer connection")
-  (let [c @(:renderer-channel universe)]
-    ;; Yes, this is synchronous and blocking
-    (async/>!! c :client-exit)
+  (if-let [c-atom (:renderer-channel universe)]
+    (if-let [c @c-atom]
+      (do
+        ;; Yes, this is synchronous and blocking
+        (async/>!! c :client-exit)
 
-    ;; TODO: So...does the other side actually close the channel?
-    (throw (RuntimeException. "Make that happen"))
-    ))
+        ;; TODO: So...does the other side actually close the channel?
+        (throw (RuntimeException. "Make that happen")))
+      (log/warn "No renderer connection inside the atom to stop"))
+    (log/error "No renderer atom to stop")))
 
 (defn kill-external-messaging
   "Stop all the pieces that communicate with the outside world"
@@ -159,7 +164,11 @@ resources. Returns an updated instance of the system, ready to re-start."
   [universe]
   (log/info "Stopping Frereth Client")
   (when universe
-    (warn-renderer-about-shutdown @(:renderer-channel universe))
+    (if-let [c-atom (:renderer-channel universe)]
+      (if-let [c @c-atom]
+        (warn-renderer-about-shutdown c)
+        (log/warn "Renderer channel empty inside atom"))
+      (log/warn "No renderer channel atom"))
 
     (kill-repl universe)
     (stop-renderer-connection universe)

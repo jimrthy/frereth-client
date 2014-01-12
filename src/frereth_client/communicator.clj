@@ -5,6 +5,7 @@
             [frereth-client.config :as config]
             [ribol.core :refer :all]
             [taoensso.timbre :as timbre])
+  (:import [org.zeromq ZMQ$Poller])
   (:gen-class))
 
 "Can I handle all of the networking code in here?
@@ -75,7 +76,7 @@ it frequently."
            ;; Will be polling on home, pull, and the various remotes
            n (count remote)
            polled-sockets [home remote view-pull]
-           poller (mq/poller n)]
+           ^ZMQ$Poller poller (mq/poller n)]
        ;; I'm almost positive that I don't want to rebuild this
        ;; every time through. But only almost.
        (mq/socket-poller-in! polled-sockets)
