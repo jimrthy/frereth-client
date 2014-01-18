@@ -26,12 +26,8 @@
                  [org.clojure/tools.trace "0.7.6"]]
   :main frereth-client.core
   :profiles {:dev {:source-paths ["dev"]
-                   :dependencies [[clj-ns-browser "1.3.1"]
-                                  [night-vision "0.1.0-SNAPSHOT"]
-                                  [org.clojure/tools.namespace "0.2.3"]
+                   :dependencies [[org.clojure/tools.namespace "0.2.3"]
                                   [org.clojure/java.classpath "0.2.0"]
-                                  [ritz/ritz-debugger "0.7.0"]]
-                   :injections [(require 'night-vision.goggles)
-                                (require 'clojure.pprint)]}}
+                                  [ritz/ritz-debugger "0.7.0"]]}}
   :repl-options {:init-ns user}
   :repositories {"sonatype-nexus-snapshots" "https://oss.sonatype.org/content/repositories/snapshots"})
