@@ -16,9 +16,9 @@ Well, obviously I could. Do I want to?"
 (defn init []
   {:context (atom nil)
    :local-server (atom nil)
-   :renderer-publisher (atom nil)  ; Multicast messages to renderer(s)
-   :renderer-puller (atom nil)  ; Incoming messages from renderer(s)
-   :remote-servers (atom [])})
+   :renderer-router (atom nil)  ; Renderers will connect here to send us messages
+   :renderer-feedback (atom {}) ; Send feedback back to the renderers
+   :remote-servers (atom {})})
 
 (defn add-server!
   "Server handshake really should establish the communication style that's
@@ -27,40 +27,61 @@ most appropriate to this server. This is really just a minimalist version."
      (add-server! system ctx uri :req))
   ([system ctx uri type]
      (let [sock (mq/connected-socket ctx type uri)]
-       (swap! (:server-sockets system) (fn [current]
+       ;; Aside from the fact that the name is borked, this entire
+       ;; approach fails.
+       ;; Each renderer needs its own server connection.
+       ;; For that matter, if a renderer has multiple tabs, that will
+       ;; mean one server connection per tab.
+       ;; The connection to the local server seems like it should be
+       ;; special, but I'm starting to doubt the wisdom of that approach.
+       (swap! (:remote-servers system) (fn [current]
                                          (assoc current uri sock)))
        system)))
 
 (defn disconnect-server!
   [system uri]
-  (if-let [server-atoms (:server-sockets system)]
+  (if-let [server-atoms (:remote-servers system)]
     (do (when-let [sock (get @server-atoms uri)]
           (mq/close! sock))
+        ;; This is totally wrong.
+        ;; This needs to be keyed by the ID of the renderer connection.
         (swap! server-atoms #(dissoc % uri))
         system)
     (timbre/error "Whoa! No associated server atom for network connections?!")))
 
 (defn server->view!
-  "src has sent some kind of message. Forward it along to all views that might be interested.
+  "server has sent some kind of message to the view.
+It's coming from the socket in the src parameter.
+This doesn't seem right.
+Forward it along to all views that might be interested.
 TODO: Don't trust raw data. Absolutely must be run through some sort of filter.
 Actually, this almost definitely requires a server that we know about,
 so we can do whatever data massaging is appropriate.
 YAGNI(yet)"
   [src dst]
-  (when (mq/recv-more? src)
-    ;; TODO: How does this work out in practice, with multiple frames?
-    (mq/send dst (mq/recv src))
-    (recur src dst)))
+  (let [frame (mq/recv src)]
+    (if (mq/recv-more? src)
+      (do
+        (mq/send dst frame :send-more)
+        (recur src dst))
+      (mq/send frame))))
 
 (defn view->servers!
   "For starters, send everything to everyone.
 This is a bad approach.
-I think.
-If remotes is a router, this might be perfect."
+
+src is a router.
+Should be able to pick its associated server based on the ID that should be the first frame of the message.
+Whether to send to home or not seems like an interesting question."
   [src home remotes]
   (let [frames (mq/recv-all src)]
     (mq/send-all home frames)
     (mq/send-all remotes frames)))
+
+(defn renderer-hand-shake
+  "Pretty much copy/pasted from a REPL session to try to get a starting point"
+  []
+  (throw (RuntimeException. "Do that")))
 
 (defn translate 
   "This is where the vast majority of its life will be spent.
@@ -125,12 +146,29 @@ it frequently."
            (fn [_]
              (mq/connected-socket ctx :req (config/local-server-url))))
 
-    (swap! (:renderer-publisher system)
+    (swap! (:renderer-router system)
            (fn [_]
-             (mq/bound-socket ctx :pub (config/render-url-from-server))))
-    (swap! (:renderer-puller system)
-           (fn [_]
-             (mq/bound-socket ctx :pull (config/render-url-from-renderer))))
+             (mq/bound-socket ctx :router (config/render-url-from-server))))
+
+    (let [msg "Need to set up a hand-shaking thread that sets up renderer-feedback sockets
+when a renderer connects to renderer-router.
+And ties those to local-server, at least for starters.
+I think I want to allow them to restore saved connections from within the renderer, but that
+seems like a chicken/egg problem.
+I want to start something that triggers all the windows that were active in the last session
+to reload, pretty much the same way Chrome restores my active browser session when I restart it.
+
+This should be optional, of course. Since most people probably won't want to have 5 bazillion
+tabs open for something this resource-intensive. At least at first.
+
+Anyway. Each of those 'sessions' probably involves multiple (1 in each tab) 'sessions' that are
+really connections to remote servers.
+
+And, realistically, at least some of those could be shared to provide multiple views. Although
+that seems questionable.
+
+FIXME: Need to implement something along those lines."]
+      (throw (RuntimeException. msg)))
 
     ;; Go ahead and create a router socket...which is going to be doing lots of
     ;; connects. How will this work out in practice?
