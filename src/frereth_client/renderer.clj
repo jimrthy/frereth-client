@@ -114,6 +114,10 @@ the form of multiple windows) as well."
    (let [out-socket (mq/bound-socket ctx :rep (config/render-url-from-server))]
      ;; The basic idea that I think I want to do is:
      (try
+       ;; I really want to do this as an ISeq.
+       ;; That would probably be a mistake: an ISeq is
+       ;; defined as immutable and persistent, and therefore
+       ;; thread-safe. This interface is inherently stateful.
        (loop [to (async/timeout (config/server-timeout))]
          ;; Switch to dispatching messages between the channel
          ;; and socket.
