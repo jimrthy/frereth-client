@@ -9,6 +9,8 @@
             [clojure.tools.trace :as trace]
             [frereth-client.system :as system]))
 
+(set! *print-length* 50)
+
 (def system nil)
 
 (defn init
