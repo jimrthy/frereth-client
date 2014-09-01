@@ -1,43 +1,57 @@
 (ns frereth-client.system
   (:gen-class)
-  (:require [frereth-client.communicator :as comm]
+  (:require [clojure.core.async :as async]
+            [clojure.tools.logging :as log]            
+            ;; Q: Debug only??
+            [clojure.tools.trace :as trace]
+            [com.stuartsierra.component :as component]
+            [frereth-client.communicator :as comm]
             [frereth-client.config :as config]
             [frereth-client.renderer :as render]
-            [frereth-client.server :as srvr]
-            [clojure.core.async :as async]
-            [clojure.tools.logging :as log]
-            [clojure.tools.nrepl.server :as nrepl]
-            ;; Q: Debug only??
-            [clojure.tools.trace :as trace])
+            [frereth-client.repl :as repl]
+            [frereth-client.server :as srvr])
   (:use [frereth-client.utils]))
 
-(defn init 
-  "Returns a new instance of the whole application"
-  []
-  (log/info "Initializing Frereth Client")
-  (let [result
-        {;; For connecting over nrepl...I have severe doubts about just
-         ;; leaving this in place and open.
-         ;; Oh well. It's an obvious back door and easy enough to close.
-         :controller (atom nil)
+(defn frereth
+  [overriding-config-options]
+  (let [cfg (into (config/defaults) overriding-config-options)]
+    ;; TODO: I really need to configure logging...don't I?
+    (-> (component/system-map
+         :config-options cfg
+         :repl (repl/new-repl {:port (:nrepl-port cfg)})
+         :zmq-context (comm/new-context {:thread-count (:zmq-thread-count cfg)}))
+        (component/system-using
+         {:context {:context :zmq-context}
+          :repl {:config :config-options}
+          }))))
 
-         ;; For handling communication back and forth with the renderer
-         :renderer-channel (atom nil)
+(comment (defn init
+           "Returns a new instance of the whole application"
+           []
+           (log/info "Initializing Frereth Client")
+           (let [result
+                 { ;; For connecting over nrepl...I have severe doubts about just
+                  ;; leaving this in place and open.
+                  ;; Oh well. It's an obvious back door and easy enough to close.
+                  :controller (atom nil)
 
-         ;; Owns the sockets and manages communications
-         ;; TODO: This now represents an atom that contains other
-         ;; atoms. Seems like a bad idea.
-         :messaging (atom (comm/init))
+                  ;; For handling communication back and forth with the renderer
+                  :renderer-channel (atom nil)
 
-         ;; Q: Where do I want to track sockets connected to other servers?
-         ;; A: They should all go away when the context is destroyed...but
-         ;; there are issues and memory/resource leaks that can happen if
-         ;; I'm not careful. Plus trying to destroy the context while they're
-         ;; lingering can lock the system.
-         ;; It's an ugly question.
-         }]
-    (log/info "Client Initialized")
-    result))
+                  ;; Owns the sockets and manages communications
+                  ;; TODO: This now represents an atom that contains other
+                  ;; atoms. Seems like a bad idea.
+                  :messaging (atom (comm/init))
+
+                  ;; Q: Where do I want to track sockets connected to other servers?
+                  ;; A: They should all go away when the context is destroyed...but
+                  ;; there are issues and memory/resource leaks that can happen if
+                  ;; I'm not careful. Plus trying to destroy the context while they're
+                  ;; lingering can lock the system.
+                  ;; It's an ugly question.
+                  }]
+             (log/info "Client Initialized")
+             result)))
 
 ;;; This kind of convoluted start/stop has been recommended as a symptom
 ;;; that I need to be using prismatic/plumbing.
