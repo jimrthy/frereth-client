@@ -6,6 +6,7 @@
             [clojure.test :as test]
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             [clojure.tools.trace :as trace]
+            [com.stuartsierra.component :as component]
             [frereth-client.system :as system]))
 
 (def system nil)
@@ -19,13 +20,13 @@
 (defn start
   "Starts the current development system."
   []
-  (alter-var-root #'system system/start))
+  (alter-var-root #'system component/start))
 
 (defn stop
   "Shuts down and destroys the current development system."
   []
   (alter-var-root #'system
-    (fn [s] (when s (system/stop s)))))
+    (fn [s] (when s (component/stop s)))))
 
 (defn go
   "Initializes the current development system and starts it running."

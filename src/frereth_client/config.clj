@@ -11,11 +11,11 @@
 (defn server-port [] 7841)
 (defn nrepl-port [] 7842)
 
-(defn render-url []
-  (str "tcp://localhost:" (renderer-port)))
+(comment (defn render-url []
+           (str "tcp://localhost:" (renderer-port)))
 
-(defn local-server-url []
-  (str "tcp://localhost:" (server-port)))
+         (defn local-server-url []
+           (str "tcp://localhost:" (server-port))))
 
 (defn server-timeout
   "How long should the client wait, as a baseline, before
@@ -35,4 +35,5 @@ with the server?"
 (defn defaults
   []
   {:nrepl-port (nrepl-port)
+   :renderer-port (renderer-port)
    :zmq-thread-count (zmq-thread-count)})

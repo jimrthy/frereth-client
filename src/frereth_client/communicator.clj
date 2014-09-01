@@ -1,12 +1,9 @@
 (ns frereth-client.communicator
   (:require [clojure.core.async :as async]
-            ;; TODO: Honestly, this is bad. It's an implementation
-            ;; detail that I simply do not want to know about
-            [clojure.core.async.impl.channels :refer (ManyToManyChannel)]
             [clojure.tools.logging :as log]
             [com.stuartsierra.component :as component]
             [frereth-client.config :as config]
-            [plumbing.core :refer :all]
+            [plumbing.core :refer :all]  ; ???
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as timbre]
@@ -19,7 +16,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(s/defrecord ZmqContext [context thread-count]
+(s/defrecord ZmqContext [context thread-count :- s/Int]
   component/Lifecycle
   (start 
    [this]
@@ -31,10 +28,62 @@
      (zmq/close context))
    (assoc this :context nil)))
 
+(s/defrecord URI [protocol :- s/Str
+                  address :- s/Str
+                  port :- s/Int]
+  component/Lifecycle
+  (start [this] this)
+  (stop [this] this))
+(declare build-url)
 
+;; Q: How do I want to handle the actual server connections?
+(s/defrecord RendererSocket [context :- ZmqContext
+                             renderers
+                             socket
+                             url :- URI]
+  component/Lifecycle
+  (start
+   [this]
+   (let [sock  (zmq/socket context :router)
+         url (build-url url)]
+     (zmq/bind sock url)
+     ;; Q: What do I want to do about the renderers?
+     (assoc this :socket sock)))
+  (stop
+   [this]
+   (zmq/unbind socket (build-url url))
+   (zmq/close socket)
+   (reset! renderers {})
+   (assoc this :socket nil)))
+
+(s/defrecord ServerSocket [context
+                           socket
+                           url :- URI]
+  component/Lifecycle
+  (start
+   [this]
+   (let [sock (zmq/socket context :dealer)]
+     (zmq/connect sock (build-url url))
+     (assoc this :socket sock)))
+
+  (stop
+   [this]
+   (zmq/set-linger socket 0)
+   (zmq/disconnect socket (build-url url))
+   (zmq/close socket)
+   (assoc this :socket nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Utilities
+
+(s/defn build-url :- s/Str
+  [url :- URI]
+  (let [port (:port url)]
+    (str (:protocol url) "://"
+         (:address url)
+         ;; port is meaningless for inproc
+         (when port
+           (str ":" port)))))
 
 (comment (defn build-local-server-connection
            "For anything resembling an external connection,
@@ -52,11 +101,6 @@ you have bigger issues."
            (-> (mq/socket! ctx (-> mqk/const :socket-type :pair))
                (mq/connect! url))))
 
-(comment (defn destroy-connection!
-           [sock url]
-           (mq/disconnect! sock url)
-           (mq/close! sock)))
-
 (comment (defn build-renderer-binding!
            ([ctx url]
               ;; This seems like it should really be a :pair socket instead.
@@ -72,11 +116,6 @@ you have bigger issues."
               ;; Then again, you can't unbind inproc sockets anyway
               ;; (recognized bug that should be fixed in 4.0.5)
               (build-renderer-binding! ctx "inproc://local-renderer"))))
-
-(comment (defn destroy-renderer-binding
-           [sock url]
-           (mq/unbind! sock url)
-           (mq/close sock)))
 
 (comment (defrecord Communicator [command-channel
                                   context
@@ -107,124 +146,34 @@ you have bigger issues."
                          :local-server nil
                          :renderer-socket nil}))))
 
-(comment (defn new-communicator
-           [params]
-           ;; I want to use something like s/defn or defnk
-           ;; to be explicit about what I'm getting
-           ;; Q: How do I make that work?
-           #_[command-channel :- ManyToManyChannel
-              local-server :- s/Str]
-           (let [real-params (select-keys params [command-channel
-                                                  local-server-url])]
-             (map->Communicator real-params))))
-
-(comment (defn start [system]
-           (when @(:context system)
-             (throw (RuntimeException. "Trying to restart networking on a system that isn't dead")))
-           (when-let [local-server @(:local-server system)]
-             (throw (RuntimeException. "Trying to start networking when already connected to the local server")))
-           (let [server-connections @(:server-sockets system)]
-             (when (> 0 (count server-connections))
-               (throw (RuntimeException. "Trying to start networking when there are live server connections"))))
-           (when @(:renderer-socket system)
-             (throw (RuntimeException. "Trying to start networking when we still have a live renderer connection")))
-
-           ;; Q: Is there any possible reason to have more than 1 thread here?
-           ;; A: Of course. Should probably make this configurable.
-           ;; Which, realistically, means that there needs to be a way to
-           ;; change this on the fly.
-           ;; Q: How can I tell whether more threads might help?
-           ;; Q: When will it become worth the pain to scrap the existing context and
-           ;; replace all the existing sockets on the fly?
-           (let [ctx (mq/context 1)]
-             (reset! (:context system) ctx)
-
-             ;; Add a socket to a local server
-             ;; FIXME: In all honesty, should do the server handshake, determine the
-             ;; appropriate socket type/url, then connect to that.
-             ;; That's more of a remote server thing, though.
-             ;; TODO: It's still pretty important.
-             (comment (add-server! system ctx (config/local-server-url) :req))
-             ;; Don't worry about remote servers yet
-             (swap! (:local-server system) (fn [_]
-                                             (mq/connected-socket ctx :req (config/local-server-url))))
-
-             ;; Dealer probably isn't the best choice here. Or maybe it is.
-             ;; I want a multi-plexer, but I really want out-going messages to
-             ;; go to everyone connected. So I really need a :pub socket for that,
-             ;; with something like a dealer to handle incoming messages.
-             (let [renderer (mq/connected-socket ctx :dealer (config/render-url))]
-               (reset! (:renderer-socket system) renderer)
-
-               (let [command-channel (async/chan)]
-                 (reset! (:command-channel system) command-channel)
-                 (async/thread-call (fn []
-                                      (translate system)))))
-             system)))
-
-(comment (defn stop [system]
-           (log/trace "Stopping Networking")
-           (when-let [ctx-atom (:context system)]
-             ;; FIXME: Notify renderer that we're going down
-             (when-let [ctx @ctx-atom]
-               (log/info "Disconnecting all servers")
-               (when-let [server-sockets-atom (:server-sockets system)]
-                 (when-let [server-sockets @server-sockets-atom]
-                   (doseq [k (-> system :server-sockets deref)]
-                     (disconnect-server! system k))
-                   (reset! server-sockets-atom {})))
-               (when-let [local-server-atom (:local-server system)]
-                 (when-let [local-server @local-server-atom]
-                   (mq/close! local-server)
-                   (reset! local-server-atom nil)))
-
-               ;; FIXME: Close renderer socket
-
-               (log/trace "Closing messaging context")
-               (mq/terminate! ctx)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Obsolete
-
-(comment (defn add-server!
-           "Server handshake really should establish the communication style that's
-most appropriate to this server. This is really just a minimalist version."
-           ([system ctx uri type]
-              (let [sock (mq/connected-socket ctx type uri)]
-                (swap! (:server-sockets system) (fn [current]
-                                                  (assoc current uri sock)))
-                system))
-           ([system ctx uri]
-              (add-server! system ctx uri :req))))
-
-(comment (defn disconnect-server!
-           [system uri]
-           (if-let [server-atoms (:server-sockets system)]
-             (do (when-let [sock (get @server-atoms uri)]
-                   (mq/close! sock))
-                 (swap! server-atoms #(dissoc % uri))
-                 system)
-             (timbre/error "Whoa! No associated server atom for network connections?!"))))
-
-(comment (defn translate 
-           "This is where the vast majority of its life will be spent"
-           [system]
-           (let [control @(:command-channel system)
-                 renderer @(:renderer-socket system)]
-             (async/go
-               ;; TODO: Honestly, the local server needs priority.
-               ;; Put it in its own atom and check it before anything else.
-               (loop [servers (vals @(:server-sockets system))]
-                 ;; TODO: Poll servers and renderer. Check for anything on the control channel.
-                 ;; Do any translation needed.
-                 (raise :not-implemented))))))
-
-(comment (defn get-context [system]
-           @(:context system)))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
 (defn new-context
   [thread-count]
-  (map->ZmqContext (:thread-count thread-count)))
+  (map->ZmqContext {:context nil
+                    :thread-count thread-count}))
+
+(defn new-renderer
+  [params]
+  (let [cfg (select-keys params [:config])
+        url {:protocol "tcp"
+             :address "*"
+             :port (:renderer-port cfg)}]
+
+    (map->RendererSocket {:config cfg
+                          :context nil
+                          :renderers (atom {})
+                          :socket nil})))
+
+(s/defn default-server-url :- URI
+  ([protocol address port]
+     (strict-map->URI {:protocol protocol
+                         :address address
+                         :port port}))
+  ([]
+     (default-server-url "inproc" "local" nil)))
+
+(defn new-server
+  []
+  (->ServerSocket))

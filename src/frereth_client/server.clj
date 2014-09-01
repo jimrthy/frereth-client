@@ -1,5 +1,8 @@
 (ns frereth-client.server
-  (:require [cljeromq.core :as mq])
+  (:refer-clojure :exclude [read-strings])
+  (:require [clojure.tools.reader.edn :as edn]
+            ;;[cljeromq.core :as mq]
+            [zeromq.zmq :as mq])
   (:gen-class))
 
 (defn negotiate-local-connection
@@ -8,8 +11,9 @@
   ;; This seems silly-verbose.
   ;; But, we do need to verify that the server is present
   (mq/send socket :ohai)
-  (let [resp (mq/recv socket)]
+  (let [raw-resp (mq/receive socket)
+        resp (edn/read-string raw-resp)]
     (assert (= resp :oryl?)))
   (mq/send (list :icanhaz? {:me-speekz {:frereth [0 0 1]}}))
-  (mq/recv socket))
+  (edn/read-string (mq/receive socket)))
 
