@@ -25,7 +25,8 @@
   ;; It has instructions for adding this as a dependency,
   ;; along with the specific middleware to repl-options
   :plugins [[cider/cider-nrepl "0.7.0"]]
-  :profiles {:dev {:source-paths ["dev"]
+  :profiles {:uberjar {:aot :all}
+             :dev {:source-paths ["dev"]
                    :dependencies [[clj-ns-browser "1.3.1"]
                                   [midje "1.6.3"]
                                   [org.clojure/tools.namespace "0.2.5"]

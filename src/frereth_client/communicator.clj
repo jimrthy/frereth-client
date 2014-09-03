@@ -85,38 +85,6 @@
          (when port
            (str ":" port)))))
 
-(comment (defn build-local-server-connection
-           "For anything resembling an external connection,
-encryption and some sort of auth needs to be mandatory.
-
-If you can't trust communications inside the same process...
-you have bigger issues."
-           [ctx url]
-           ;; This needs to be an async both ways.
-           ;; The other endpoint really should be hard-coded,
-           ;; which makes it very tempting for this to be a
-           ;; router.
-           ;; Or maybe a dealer.
-           ;; Q: Is there an advantage to one of those instead?
-           (-> (mq/socket! ctx (-> mqk/const :socket-type :pair))
-               (mq/connect! url))))
-
-(comment (defn build-renderer-binding!
-           ([ctx url]
-              ;; This seems like it should really be a :pair socket instead.
-              ;; Whatever. I have to start somewhere.
-              ;; And this at least introduces the idea that I'm really
-              ;; planning for the client to run on a machine that's as
-              ;; logically separate from the renderer as I can manage.
-              (let [sock (-> mq/socket! ctx (-> mqk/const :socket-type :router))]
-                (mq/bind! sock url)))
-           ([ctx]
-              ;; This approach seems like a horrible failure when
-              ;; it becomes time to shut everything down.
-              ;; Then again, you can't unbind inproc sockets anyway
-              ;; (recognized bug that should be fixed in 4.0.5)
-              (build-renderer-binding! ctx "inproc://local-renderer"))))
-
 (comment (defrecord Communicator [command-channel
                                   context
                                   external-server-sockets
@@ -169,10 +137,11 @@ you have bigger issues."
 (s/defn default-server-url :- URI
   ([protocol address port]
      (strict-map->URI {:protocol protocol
-                         :address address
-                         :port port}))
+                       :address address
+                       :port port}))
   ([]
      (default-server-url "inproc" "local" nil)))
+
 
 (defn new-server
   []
