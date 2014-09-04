@@ -1,7 +1,7 @@
 (ns frereth-client.core
-  (:gen-class)
   (:require [com.stuartsierra.component :as component]
-            [frereth-client.system :as system]))
+            [frereth-client.system :as system])
+  (:gen-class))
 
 (defn -main
   "I don't do a whole lot ... yet."

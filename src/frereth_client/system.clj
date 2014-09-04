@@ -1,5 +1,4 @@
 (ns frereth-client.system
-  (:gen-class)
   (:require [clojure.core.async :as async]
             [clojure.tools.logging :as log]            
             ;; Q: Debug only??
@@ -9,8 +8,7 @@
             [frereth-client.config :as config]
             [frereth-client.renderer :as render]
             [frereth-client.repl :as repl]
-            [frereth-client.server :as srvr])
-  (:use [frereth-client.utils]))
+            [frereth-client.server :as srvr]))
 
 (defn init
   [overriding-config-options]
@@ -19,19 +17,21 @@
     (-> (component/system-map
          :config cfg
          :done (promise)
-         :renderers (comm/new-renderer cfg)
+         :renderer-handler (comm/new-renderer-handler cfg)
+         :renderer-url (comm/new-renderer-url cfg)
          :repl (repl/new-repl {:port (:nrepl-port cfg)})
          :server (comm/new-server)
          :server-url (comm/default-server-url)
-         :zmq-context (comm/new-context {:thread-count (:zmq-thread-count cfg)}))
+         :zmq-context (comm/new-context (:zmq-thread-count cfg)))
         (component/system-using
-         {:renderers {:config :config
-                      :context :zmq-context}
-          :repl {:config :config}
+         {:renderer-handler {:config :config
+                             :context :zmq-context
+                             :renderer-url :renderer-url}
+          :repl [:config]
           :server {:config :config
                    :context :zmq-context
                    :url :server-url}
-          :zmq-context {:config :config-options}}))))
+          :zmq-context [:config]}))))
 
 
 

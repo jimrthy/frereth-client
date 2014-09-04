@@ -6,8 +6,10 @@
             [plumbing.core :refer :all]  ; ???
             [ribol.core :refer (raise)]
             [schema.core :as s]
+            [schema.macros :as sm]
             [taoensso.timbre :as timbre]
             [zeromq.zmq :as zmq])
+  (:import [org.zeromq ZMQException])
   (:gen-class))
 
 ;;;; Can I handle all of the networking code in here?
@@ -16,10 +18,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(s/defrecord ZmqContext [context thread-count :- s/Int]
+(sm/defrecord ZmqContext [context thread-count :- s/Int]
   component/Lifecycle
   (start 
    [this]
+   (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
+                  (class thread-count) ") threads")]
+     (println msg))
    (let [ctx (zmq/context thread-count)]
      (assoc this :context ctx)))
   (stop
@@ -28,55 +33,63 @@
      (zmq/close context))
    (assoc this :context nil)))
 
-(s/defrecord URI [protocol :- s/Str
-                  address :- s/Str
-                  port :- s/Int]
+(sm/defrecord URI [protocol :- s/Str
+                   address :- s/Str
+                   port :- s/Int]
   component/Lifecycle
   (start [this] this)
   (stop [this] this))
 (declare build-url)
 
 ;; Q: How do I want to handle the actual server connections?
-(s/defrecord RendererSocket [context :- ZmqContext
-                             renderers
-                             socket
-                             url :- URI]
+(sm/defrecord RendererSocket [context :- ZmqContext
+                              renderers
+                              socket
+                              renderer-url :- URI]
   component/Lifecycle
   (start
    [this]
-   (let [sock  (zmq/socket context :router)
-         url (build-url url)]
-     (zmq/bind sock url)
+   (let [sock  (zmq/socket (:context context) :router)
+         actual-url (build-url renderer-url)]
+     (try
+       (zmq/bind sock actual-url)
+       (catch ZMQException ex
+         (raise {:zmq-failure ex
+                 :binding renderer-url
+                 :details actual-url})))
      ;; Q: What do I want to do about the renderers?
      (assoc this :socket sock)))
   (stop
    [this]
-   (zmq/unbind socket (build-url url))
-   (zmq/close socket)
+   (when socket
+     (println "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
+     (zmq/unbind socket (build-url renderer-url))
+     (zmq/close socket))
    (reset! renderers {})
    (assoc this :socket nil)))
 
-(s/defrecord ServerSocket [context
-                           socket
-                           url :- URI]
+(sm/defrecord ServerSocket [context
+                            socket
+                            url :- URI]
   component/Lifecycle
   (start
    [this]
-   (let [sock (zmq/socket context :dealer)]
+   (let [sock (zmq/socket (:context context) :dealer)]
      (zmq/connect sock (build-url url))
      (assoc this :socket sock)))
 
   (stop
    [this]
-   (zmq/set-linger socket 0)
-   (zmq/disconnect socket (build-url url))
-   (zmq/close socket)
+   (when socket
+     (zmq/set-linger socket 0)
+     (zmq/disconnect socket (build-url url))
+     (zmq/close socket))
    (assoc this :socket nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Utilities
 
-(s/defn build-url :- s/Str
+(sm/defn build-url :- s/Str
   [url :- URI]
   (let [port (:port url)]
     (str (:protocol url) "://"
@@ -122,19 +135,22 @@
   (map->ZmqContext {:context nil
                     :thread-count thread-count}))
 
-(defn new-renderer
-  [params]
-  (let [cfg (select-keys params [:config])
-        url {:protocol "tcp"
-             :address "*"
-             :port (:renderer-port cfg)}]
+(defn new-renderer-url
+  [{:keys [renderer-protocol renderer-address renderer-port] :as cfg}]
+  (println "Setting up the renderer URL based on:\n" cfg)
+  (strict-map->URI {:protocol renderer-protocol
+                    :address renderer-address
+                    :port renderer-port}))
 
+(defn new-renderer-handler
+  [params]
+  (let [cfg (select-keys params [:config])]
     (map->RendererSocket {:config cfg
                           :context nil
                           :renderers (atom {})
                           :socket nil})))
 
-(s/defn default-server-url :- URI
+(sm/defn default-server-url :- URI
   ([protocol address port]
      (strict-map->URI {:protocol protocol
                        :address address
@@ -145,4 +161,4 @@
 
 (defn new-server
   []
-  (->ServerSocket))
+  (map->ServerSocket {}))

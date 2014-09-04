@@ -7,7 +7,11 @@
 ;; Wrapping them in functions makes it trivial to swap out
 ;; something more useful when there's a reason.
 (defn control-port [] 7839)
-(defn renderer-port [] 7840)
+
+(defn renderer-protocol [] "inproc")
+(defn renderer-address [] "renderer<->client")
+(defn renderer-port [] (comment 7840) nil)
+
 (defn server-port [] 7841)
 (defn nrepl-port [] 7842)
 
@@ -35,5 +39,7 @@ with the server?"
 (defn defaults
   []
   {:nrepl-port (nrepl-port)
+   :renderer-protocol (renderer-protocol)
+   :renderer-address (renderer-address)
    :renderer-port (renderer-port)
    :zmq-thread-count (zmq-thread-count)})

@@ -6,8 +6,7 @@
             [frereth-client.config :as config]
             [frereth-client.translator :as trnsltr]
             [ribol.core :refer :all]
-            [taoensso.timbre :as timbre])
-  (:gen-class))
+            [taoensso.timbre :as timbre]))
 
 (comment (defn renderer-heartbeats
            "Start exchanging heartbeats with the renderer over

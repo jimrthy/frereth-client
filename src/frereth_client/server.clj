@@ -2,8 +2,7 @@
   (:refer-clojure :exclude [read-strings])
   (:require [clojure.tools.reader.edn :as edn]
             ;;[cljeromq.core :as mq]
-            [zeromq.zmq :as mq])
-  (:gen-class))
+            [zeromq.zmq :as mq]))
 
 (defn negotiate-local-connection
   "Tell local server who we are."
