@@ -6,6 +6,7 @@
             :url "http://http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[byte-transforms "0.1.3"]
                  [cider/cider-nrepl "0.7.0"]
+                 [com.cemerick/pomegranate "0.3.0"]
                  [com.postspectacular/rotor "0.1.0"]
                  [com.stuartsierra/component "0.2.1"]
                  [com.taoensso/timbre "3.2.1"]

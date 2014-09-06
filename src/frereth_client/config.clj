@@ -3,7 +3,7 @@
 (defn version-tag
   "Because lein install doesn't seem to actually be accomplishing anything"
   []
-  "2f902ef7dcd05136580f8e0250f507be624c57aa")
+  "bdfebb496713cb60f6c252633a5ae6f4a145a6fb")
 
 (defn control-port [] 7839)
 

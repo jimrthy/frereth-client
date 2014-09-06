@@ -9,7 +9,7 @@
             [schema.macros :as sm]
             [taoensso.timbre :as timbre]
             [zeromq.zmq :as zmq])
-  (:import [org.zeromq ZMQException])
+  (:import [org.zeromq ZMQ$Context ZMQException])
   (:gen-class))
 
 ;;;; Can I handle all of the networking code in here?
@@ -18,7 +18,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(sm/defrecord ZmqContext [context thread-count :- s/Int]
+(sm/defrecord ZmqContext [context :- ZMQ$Context
+                          thread-count :- s/Int]
   component/Lifecycle
   (start 
    [this]
@@ -30,7 +31,10 @@
   (stop
    [this]
    (when context
-     (zmq/close context))
+     ;; Only applies to ZContext.
+     ;; Which is totally distinct from ZMQ$Context
+     (comment (zmq/close context))
+     (.close context))
    (assoc this :context nil)))
 
 (sm/defrecord URI [protocol :- s/Str
