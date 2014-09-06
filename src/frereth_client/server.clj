@@ -1,6 +1,8 @@
 (ns frereth-client.server
-  (:require [cljeromq.core :as mq])
-  (:gen-class))
+  (:refer-clojure :exclude [read-strings])
+  (:require [clojure.tools.reader.edn :as edn]
+            ;;[cljeromq.core :as mq]
+            [zeromq.zmq :as mq]))
 
 (set! *warn-on-reflection* true)
 
@@ -10,8 +12,9 @@
   ;; This seems silly-verbose.
   ;; But, we do need to verify that the server is present
   (mq/send socket :ohai)
-  (let [resp (mq/recv socket)]
+  (let [raw-resp (mq/receive socket)
+        resp (edn/read-string raw-resp)]
     (assert (= resp :oryl?)))
   (mq/send (list :icanhaz? {:me-speekz {:frereth [0 0 1]}}))
-  (mq/recv socket))
+  (edn/read-string (mq/receive socket)))
 

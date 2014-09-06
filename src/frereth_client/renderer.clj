@@ -1,12 +1,15 @@
 (ns frereth-client.renderer
   (:require [clojure.core.async :as async]
-            [cljeromq.core :as mq]
+            [clojure.tools.logging :as log]
+            #_[cljeromq.core :as mq]
             [frereth-client.config :as config]
             [frereth-client.translator :as trnsltr]
-            [ribol.core :refer :all]
-            [taoensso.timbre :as log])
+            [ribol.core :refer :all]  ; TODO: Don't do this
+[taoensso.timbre :as log]
+            [zeromq.zmq :as mq])
   (:gen-class))
 
+;; TODO: Move this into (init)
 (set! *warn-on-reflection* true)
 
 (defn renderer-heartbeats
@@ -14,12 +17,11 @@
 socket, until we get a notice over the channel that
 we've established a connection with the server (or,
 for that matter, that such a connection failed)."
-  [control-chan ctx]
+           [control-chan ctx socket]
   ;; Don't bother with anything fancy for now.
   ;; Realistically, this seems pretty tricky and fraught
   ;; with peril. Which is why I'm trying to get a rope thrown
   ;; across first.
-
   ;; This conflicts with the PULL socket (:renderer-puller)
   ;; that was created in communicator.clj.
   ;; Actually, this entire thing might well be obsolete.
@@ -80,6 +82,54 @@ for that matter, that such a connection failed)."
                        (recur (inc n) current-time))
                      (recur n previous-report-time))))))))))))
 
+(defn alt-renderer-heartbeats
+  "I'm not sure which version is older and more useless."
+  []
+           (log/info "Beginning renderer heartbeat")
+           (async/go
+             (mq/with-poller [renderer-heartbeat ctx socket]
+               (loop []
+
+                 (log/info "Waiting on renderer")
+                 ;; For example: this pretty desperately needs a timeout
+                 ;; I want to check the control-chan periodically to see
+                 ;; whether it's time to quit. Blocking here means that
+                 ;; can't possibly work.
+                 (let [input
+                       ;; FIXME: Honestly, this should probably be a poll
+                       (mq/recv socket)]
+
+                   (log/info "Responding to renderer")
+
+                   (if (= input "PING")
+                     ;; And I really shouldn't just accept anything at all.
+                     ;; Want *some* sort of indication that the other side is
+                     ;; worth talking to.
+                     ;; For example...which drivers does it implement? Or some
+                     ;; such.
+                     ;; This should probably be an extremely momentous thing.
+                     ;; Especially since multiple clients should probably be
+                     ;; able to connect at the same time.
+                     ;; Then again, maybe that's the province of a plugin/alternative
+                     ;; renderer to tee/merge that sort of thing.
+                     (mq/send socket "PONG")
+
+                     (do
+                       ;; FIXME: There's something that's completely and totally wrong here.
+                       ;; I'm listening and writing to the same channel here. This is really
+                       ;; just a feedback loop.
+                       ;; Really need to re-think this architecture:
+                       ;; Right now, my goesintas are just reading from the goesouttas.
+                       (async/>!! control-chan (trnsltr/client->server input))
+                       (raise :start-here))))
+
+                 ;; Seems like there must be an easier way to poll for an existing message.
+                 ;; 1 ms here isn't all that big a deal, but this still seems like a waste
+                 (let [to (async/timeout 1)]
+                   (let [[v ch] (alts! [control-chan] {:default nil})]
+                     (when (= ch :default)
+                       (recur))))))))
+
 (defn build-proxy
   "This function kicks off background threads to translate communications
 between the front-end renderer and the server.
@@ -92,18 +142,9 @@ More naive in that there's no possibility of cleanup.
 For that matter, I most definitely do expect multiple renderers (in
 the form of multiple windows) as well."
   [ctx channel]
-  ;; FIXME: Build socket during start. Stop it and release it
-  ;; for GC during stop. The current approach is just begging
-  ;; for failures when I try to run a reset.
-
-  ;; The entire idea of using push/pull here crashes and burns when I start
-  ;; dealing with multiple renderers. I *am* gonna need that...but not
-  ;; yet.
-
-
-  (renderer-heartbeats channel ctx)
-
-  (log/info "Entering communications loop with renderer")
+           ;; FIXME: Build socket during start. Stop it and release it
+           ;; for GC during stop. The current approach is just begging
+           ;; for failures when I try to run a reset.
   (async/go
    ;; Important:
    ;; pretty much all operations involved here should
@@ -127,16 +168,26 @@ the form of multiple windows) as well."
                (log/debug (format "Sending {0} to the renderer" msg))
                (raise-on [IllegalStateException :needs-recv]
                          (mq/send out-socket (trnsltr/server->client msg))))
-             (do
-               ;; If we start getting communication timeouts,
-               ;; really want to be smart about it. This involves
-               ;; command/control stuff from the client.
+                           (if (not= msg :client-exit)
+                             ;; FIXME: Need to run this through the translator!
+                             (do
+                               ;; Receive a quit message from the channel: notify
+                               ;; the renderer that it's time to exit.
+                               ;; For now, just act as a straight conduit
+                               (log/info (format "Sending {0} to the renderer" msg))
+                               (async/close! channel)
+                               ;; No recur...time to quit
+                               )))
+                         (do
+                           ;; If we start getting communication timeouts,
+                           ;; really want to be smart about it. This involves
+                           ;; command/control stuff from the client.
 
-               ;; This next sequence is really in place because cljeromq's handling
-               ;; of messages (especially things like keywords) is (hopefully was)
-               ;; on very shaky ground.
-               (log/debug "Getting ready to transmit a keyword")
-               ;; FIXME: Do I want to do this at all?
+                           ;; This next sequence is really in place because cljeromq's handling
+                           ;; of messages (especially things like keywords) is (hopefully was)
+                           ;; on very shaky ground.
+                           (log/trace "Getting ready to transmit a keyword")
+                           ;; FIXME: Do I want to do this at all?
                ;; At the very most, I'm pretty sure I don't want to send it
                ;; more than once every few seconds.
                (raise-on [IllegalStateException :delayed-needs-received]
@@ -157,4 +208,12 @@ the form of multiple windows) as well."
              ;; No recur...time to quit
              (async/close! channel))))
        (finally
-         (mq/close! out-socket))))))
+         (mq/close! out-socket)))))
+           (let [socket (mq/bound-socket ctx :dealer (config/render-url))]
+             ;; The basic idea that I want to do is:
+
+             (log/info "Kicking off heartbeat with renderer")
+             (try
+               (renderer-heartbeats channel ctx socket)
+
+               (log/trace "Entering communications loop with renderer")

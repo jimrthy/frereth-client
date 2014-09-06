@@ -8,18 +8,15 @@
 
 ;; Wrapping them in functions makes it trivial to swap out
 ;; something more useful when there's a reason.
+
 (defn control-port [] 7839)
-(defn ->renderer-port [] 7840)
+
+(defn renderer-protocol [] "inproc")
+(defn renderer-address [] "renderer<->client")
+(defn renderer-port [] (comment 7840) nil)
+
 (defn server-port [] 7841)
 (defn <-renderer-port [] 7842)
-
-(defn messaging-threads
-  "How many threads should the messaging system use?"
-  []
-  ;; For now, just start with the default max
-  ;; recommended by 0mq:
-  ;; core_count - 1
-  (dec (.availableProcessors (Runtime/getRuntime))))
 
 ;; Messages that originate in the client or server which
 ;; go out to update the view get multicast through here.
@@ -38,6 +35,14 @@ come in through here"
 (defn local-server-url []
   (str "tcp://localhost:" (server-port)))
 
+(defn zmq-thread-count
+  []
+  (let [cpu-count (.availableProcessors (Runtime/getRuntime))]
+    ;; This is the absolute maximum that's ever recommended.
+    ;; 1 seems like a more likely option.
+    ;; Seems to depend on bandwidth
+    (dec cpu-count)))
+
 (defn server-timeout
   "How long should the client wait, as a baseline, before
 notifying the renderer that there are communications issues 
@@ -50,3 +55,11 @@ with the server?"
 between checking for an exit signal"
   []
   50)
+
+(defn defaults
+  []
+  {:nrepl-port (nrepl-port)
+   :renderer-protocol (renderer-protocol)
+   :renderer-address (renderer-address)
+   :renderer-port (renderer-port)
+   :zmq-thread-count (zmq-thread-count)})
