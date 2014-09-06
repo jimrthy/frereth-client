@@ -62,8 +62,19 @@
   (stop
    [this]
    (when socket
-     (println "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
-     (zmq/unbind socket (build-url renderer-url))
+     (log/info "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
+     (if (= "inproc" (:protocol renderer-url))
+       (try
+         ;; TODO: Don't bother trying to unbind an inproc socket.
+         ;; Which really means checking the socket options to see
+         ;; what we've got.
+         ;; Or being smarter about tracking it.
+         ;; Then again...the easy answer is just to check whether
+         ;; we're using "inproc" as the protocol
+         (zmq/unbind socket (build-url renderer-url))
+         (catch ZMQException ex
+           (log/info ex "This usually isn't a real problem")))
+       (log/debug "Can't unbind an inproc socket"))
      (zmq/close socket))
    (reset! renderers {})
    (assoc this :socket nil)))
