@@ -40,4 +40,4 @@
   (println "Stopping")
   (stop)
   (println "Refreshing namespaces")
-  (refresh :after 'user/go))
+  (refresh :after 'dev/go))

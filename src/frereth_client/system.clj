@@ -12,6 +12,8 @@
 
 (defn init
   [overriding-config-options]
+  (set! *warn-on-reflection* true)
+
   (let [cfg (into (config/defaults) overriding-config-options)]
     ;; TODO: I really need to configure logging...don't I?
     (-> (component/system-map
