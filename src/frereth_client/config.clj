@@ -1,11 +1,10 @@
 (ns frereth-client.config)
 
-;; These look like globals. But they're really just magic
-;; numbers that (realistically) should be loaded from some
-;; sort of "real" configuration (like a database) instead.
+(defn version-tag
+  "Because lein install doesn't seem to actually be accomplishing anything"
+  []
+  "2f902ef7dcd05136580f8e0250f507be624c57aa")
 
-;; Wrapping them in functions makes it trivial to swap out
-;; something more useful when there's a reason.
 (defn control-port [] 7839)
 
 (defn renderer-protocol [] "inproc")

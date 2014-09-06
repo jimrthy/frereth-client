@@ -63,7 +63,7 @@
    [this]
    (when socket
      (log/info "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
-     (if (= "inproc" (:protocol renderer-url))
+     (if (not= "inproc" (:protocol renderer-url))
        (try
          ;; TODO: Don't bother trying to unbind an inproc socket.
          ;; Which really means checking the socket options to see
