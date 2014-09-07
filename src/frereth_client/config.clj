@@ -1,4 +1,6 @@
-(ns frereth-client.config)
+(ns frereth-client.config
+  (:require [ribol.core :refer (raise)]
+            [schema.core :as s]))
 
 ;; These look like globals. But they're really just magic
 ;; numbers that (realistically) should be loaded from some
@@ -18,14 +20,12 @@
 (defn server-port [] 7841)
 (defn <-renderer-port [] 7842)
 
-;; Messages that originate in the client or server which
-;; go out to update the view get multicast through here.
-(defn render-url-from-server []
-  (str "tcp://localhost:" (->renderer-port)))
+(defn nrepl-port [] 7843)
 
 (defn render-url-from-renderer []
   "Messages coming in from the renderer (AKA the View)
 come in through here"
+  (raise [:not-implemented {:reason "Not sure what to do"}])
   (str "tcp://localhost:" (<-renderer-port)))
 
 ;; I have my doubts about whether I can get away with

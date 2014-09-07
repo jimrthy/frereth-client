@@ -1,27 +1,109 @@
 (ns frereth-client.communicator
   (:require [clojure.core.async :as async]
-            [clojure.tools.logging :as log]
+            #_[clojure.tools.logging :as log]
             [com.stuartsierra.component :as component]
             [frereth-client.config :as config]
-<<<<<<< HEAD
-            [ribol.core :refer :all]
-            [taoensso.timbre :as timbre])
-  (:import [org.zeromq ZMQ$Poller])
+            [plumbing.core :refer :all]  ; ???
+            [ribol.core :refer (raise)]
+            [schema.core :as s]
+            [schema.macros :as sm]
+            [taoensso.timbre :as log]
+            [zeromq.zmq :as zmq])
+  (:import [org.zeromq ZMQException ZMQ$Poller])
   (:gen-class))
 
-"Can I handle all of the networking code in here?
-Well, obviously I could. Do I want to?"
+;;;; Can I handle all of the networking code in here?
+;;;; Well, obviously I could. Do I want to?
 
 (set! *warn-on-reflection* true)
 
-(defn init []
-  {:context (atom nil)
-   :local-server (atom nil)
-   :renderer-router (atom nil)  ; Renderers will connect here to send us messages
-   :renderer-feedback (atom {}) ; Send feedback back to the renderers
-   :remote-servers (atom {})})
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Schema
 
-(defn add-server!
+(sm/defrecord ZmqContext [context thread-count :- s/Int]
+  component/Lifecycle
+  (start 
+   [this]
+   (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
+                  (class thread-count) ") threads")]
+     (println msg))
+   (let [ctx (zmq/context thread-count)]
+     (assoc this :context ctx)))
+  (stop
+   [this]
+   (when context
+     (zmq/close context))
+   (assoc this :context nil)))
+
+(sm/defrecord URI [protocol :- s/Str
+                   address :- s/Str
+                   port :- s/Int]
+  component/Lifecycle
+  (start [this] this)
+  (stop [this] this))
+
+(declare build-url)
+;; Q: How do I want to handle the actual server connections?
+(sm/defrecord RendererSocket [context :- ZmqContext
+                              renderers
+                              socket
+                              renderer-url :- URI]
+  component/Lifecycle
+  (start
+   [this]
+   (let [sock  (zmq/socket (:context context) :router)
+         actual-url (build-url renderer-url)]
+     (try
+       (zmq/bind sock actual-url)
+       (catch ZMQException ex
+         (raise {:zmq-failure ex
+                 :binding renderer-url
+                 :details actual-url})))
+     ;; Q: What do I want to do about the renderers?
+     (assoc this :socket sock)))
+  (stop
+   [this]
+   (when socket
+     (log/info "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
+     (if (= "inproc" (:protocol renderer-url))
+       (try
+         ;; TODO: Don't bother trying to unbind an inproc socket.
+         ;; Which really means checking the socket options to see
+         ;; what we've got.
+         ;; Or being smarter about tracking it.
+         ;; Then again...the easy answer is just to check whether
+         ;; we're using "inproc" as the protocol
+         (zmq/unbind socket (build-url renderer-url))
+         (catch ZMQException ex
+           (log/info ex "This usually isn't a real problem")))
+       (log/debug "Can't unbind an inproc socket"))
+     (zmq/close socket))
+   (reset! renderers {})
+   (assoc this :socket nil)))
+
+(sm/defrecord ServerSocket [context
+                            socket
+                            url :- URI]
+  component/Lifecycle
+  (start
+   [this]
+   (let [sock (zmq/socket (:context context) :dealer)]
+     (zmq/connect sock (build-url url))
+     (assoc this :socket sock)))
+
+  (stop
+   [this]
+   (when socket
+     (zmq/set-linger socket 0)
+     (zmq/disconnect socket (build-url url))
+     (zmq/close socket))
+   (assoc this :socket nil)))
+
+;;; Q: What makes sense to do here?
+;;; Do I add a server and have clients act as many-to-many conduits?
+;;; Or just limit each client to a single server at once?
+;;; That question's pretty vital
+(comment (defn add-server!
   "Server handshake really should establish the communication style that's
 most appropriate to this server. This is really just a minimalist version."
   ([system ctx uri]
@@ -37,18 +119,28 @@ most appropriate to this server. This is really just a minimalist version."
        ;; special, but I'm starting to doubt the wisdom of that approach.
        (swap! (:remote-servers system) (fn [current]
                                          (assoc current uri sock)))
-       system)))
+       system))))
 
-(defn disconnect-server!
-  [system uri]
-  (if-let [server-atoms (:remote-servers system)]
-    (do (when-let [sock (get @server-atoms uri)]
-          (mq/close! sock))
-        ;; This is totally wrong.
-        ;; This needs to be keyed by the ID of the renderer connection.
-        (swap! server-atoms #(dissoc % uri))
-        system)
-    (timbre/error "Whoa! No associated server atom for network connections?!")))
+(comment (defn stop [system]
+  (log/trace "Stopping Networking")
+  (when-let [ctx-atom (:context system)]
+    ;; FIXME: Notify renderer that we're going down
+    (when-let [ctx @ctx-atom]
+      (log/info "Disconnecting all servers")
+      (when-let [server-sockets-atom (:server-sockets system)]
+        (when-let [server-sockets @server-sockets-atom]
+          (doseq [k (-> system :server-sockets deref)]
+            (disconnect-server! system k))
+          (reset! server-sockets-atom {})))
+      (when-let [local-server-atom (:local-server system)]
+        (when-let [local-server @local-server-atom]
+          (mq/close! local-server)
+          (reset! local-server-atom nil)))
+
+      ;; FIXME: Close renderer sockets!
+
+      (log/trace "Closing messaging context")
+      (mq/terminate! ctx)))))
 
 (defn server->view!
   "server has sent some kind of message to the view.
@@ -182,123 +274,19 @@ FIXME: Need to implement something along those lines."]
 (defn get-context [system]
   @(:context system))
 
-(defn stop [system]
-  (log/trace "Stopping Networking")
-  (when-let [ctx-atom (:context system)]
-    ;; FIXME: Notify renderer that we're going down
-    (when-let [ctx @ctx-atom]
-      (log/info "Disconnecting all servers")
-      (when-let [server-sockets-atom (:server-sockets system)]
-        (when-let [server-sockets @server-sockets-atom]
-          (doseq [k (-> system :server-sockets deref)]
-            (disconnect-server! system k))
-          (reset! server-sockets-atom {})))
-      (when-let [local-server-atom (:local-server system)]
-        (when-let [local-server @local-server-atom]
-          (mq/close! local-server)
-          (reset! local-server-atom nil)))
-
-      ;; FIXME: Close renderer sockets!
-
-      (log/trace "Closing messaging context")
-      (mq/terminate! ctx))))
-=======
-            [plumbing.core :refer :all]  ; ???
-            [ribol.core :refer (raise)]
-            [schema.core :as s]
-            [schema.macros :as sm]
-            [taoensso.timbre :as timbre]
-            [zeromq.zmq :as zmq])
-  (:import [org.zeromq ZMQException])
-  (:gen-class))
-
-;;;; Can I handle all of the networking code in here?
-;;;; Well, obviously I could. Do I want to?
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Schema
-
-(sm/defrecord ZmqContext [context thread-count :- s/Int]
-  component/Lifecycle
-  (start 
-   [this]
-   (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
-                  (class thread-count) ") threads")]
-     (println msg))
-   (let [ctx (zmq/context thread-count)]
-     (assoc this :context ctx)))
-  (stop
-   [this]
-   (when context
-     (zmq/close context))
-   (assoc this :context nil)))
-
-(sm/defrecord URI [protocol :- s/Str
-                   address :- s/Str
-                   port :- s/Int]
-  component/Lifecycle
-  (start [this] this)
-  (stop [this] this))
-(declare build-url)
-
-;; Q: How do I want to handle the actual server connections?
-(sm/defrecord RendererSocket [context :- ZmqContext
-                              renderers
-                              socket
-                              renderer-url :- URI]
-  component/Lifecycle
-  (start
-   [this]
-   (let [sock  (zmq/socket (:context context) :router)
-         actual-url (build-url renderer-url)]
-     (try
-       (zmq/bind sock actual-url)
-       (catch ZMQException ex
-         (raise {:zmq-failure ex
-                 :binding renderer-url
-                 :details actual-url})))
-     ;; Q: What do I want to do about the renderers?
-     (assoc this :socket sock)))
-  (stop
-   [this]
-   (when socket
-     (log/info "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
-     (if (= "inproc" (:protocol renderer-url))
-       (try
-         ;; TODO: Don't bother trying to unbind an inproc socket.
-         ;; Which really means checking the socket options to see
-         ;; what we've got.
-         ;; Or being smarter about tracking it.
-         ;; Then again...the easy answer is just to check whether
-         ;; we're using "inproc" as the protocol
-         (zmq/unbind socket (build-url renderer-url))
-         (catch ZMQException ex
-           (log/info ex "This usually isn't a real problem")))
-       (log/debug "Can't unbind an inproc socket"))
-     (zmq/close socket))
-   (reset! renderers {})
-   (assoc this :socket nil)))
-
-(sm/defrecord ServerSocket [context
-                            socket
-                            url :- URI]
-  component/Lifecycle
-  (start
-   [this]
-   (let [sock (zmq/socket (:context context) :dealer)]
-     (zmq/connect sock (build-url url))
-     (assoc this :socket sock)))
-
-  (stop
-   [this]
-   (when socket
-     (zmq/set-linger socket 0)
-     (zmq/disconnect socket (build-url url))
-     (zmq/close socket))
-   (assoc this :socket nil)))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Utilities
+
+(defn disconnect-server!
+  [system uri]
+  (if-let [server-atoms (:remote-servers system)]
+    (do (when-let [sock (get @server-atoms uri)]
+          (mq/close! sock))
+        ;; This is totally wrong.
+        ;; This needs to be keyed by the ID of the renderer connection.
+        (swap! server-atoms #(dissoc % uri))
+        system)
+    (timbre/error "Whoa! No associated server atom for network connections?!")))
 
 (sm/defn build-url :- s/Str
   [url :- URI]
@@ -373,4 +361,3 @@ FIXME: Need to implement something along those lines."]
 (defn new-server
   []
   (map->ServerSocket {}))
->>>>>>> 2f902ef7dcd05136580f8e0250f507be624c57aa
