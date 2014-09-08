@@ -1,13 +1,15 @@
 (ns frereth-client.core
-  (:gen-class)
-  (:require [frereth-client.system :as system]))
+  (:require [com.stuartsierra.component :as component]
+            [frereth-client.system :as system])
+  (:gen-class))
 
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]
   (let [pre-universe (system/init)]
-    (let [universe (system/start pre-universe)]
+    (let [universe (component/start pre-universe)]
       (try
-        (println "Hello, World!")
+        (let [done (:done universe)]
+          @done)
         (finally
-          (system/stop universe))))))
+          (component/stop universe))))))

@@ -1,8 +1,8 @@
 (ns frereth-client.utils
-  (:gen-class))
+  (:require [ribol.core :refer (raise)]))
 
 (defn error
   "Somebody fuckd up"
   [obj]
   ;; This seems likely to make the stack trace even more useless
-  (throw (RuntimeException. (str obj))))
+  (raise [:obsolete {:reason "Ribol does this better. This should just go away"}]))

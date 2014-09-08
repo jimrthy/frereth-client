@@ -1,5 +1,4 @@
-(ns frereth-client.translator
-  (:gen-class))
+(ns frereth-client.translator)
 
 "Not realistic in the slightest. But I have to start somewhere.
 At the very least, should be translating protocols for clients and servers
