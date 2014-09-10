@@ -8,7 +8,7 @@
                  [cider/cider-nrepl "0.7.0"]
                  [com.cemerick/pomegranate "0.3.0"]
                  [com.postspectacular/rotor "0.1.0"]
-                 [com.stuartsierra/component "0.2.1"]
+                 [com.stuartsierra/component "0.2.2"]
                  [com.taoensso/timbre "3.2.1"]
                  [im.chit/ribol "0.4.0"]
                  ;[jimrthy/cljeromq "0.1.0-SNAPSHOT"]  ; Q: Do I *really* want to use this?
@@ -30,7 +30,7 @@
              :dev {:source-paths ["dev"]
                    :dependencies [[clj-ns-browser "1.3.1"]
                                   [midje "1.6.3"]
-                                  [org.clojure/tools.namespace "0.2.5"]
+                                  [org.clojure/tools.namespace "0.2.6"]
                                   [org.clojure/java.classpath "0.2.2"]]}}
   :repl-options {:init-ns user}
   ;; Q: What's this needed for?
