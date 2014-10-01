@@ -56,6 +56,9 @@
    (let [sock  (zmq/socket (:context context) :router)
          actual-url (build-url renderer-url)]
      (try
+       ;; TODO: Make this another option. It's really only
+       ;; for debugging.
+       (zmq/set-router-mandatory sock 1)
        (zmq/bind sock actual-url)
        (catch ZMQException ex
          (raise {:zmq-failure ex
