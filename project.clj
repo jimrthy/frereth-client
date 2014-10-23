@@ -18,7 +18,7 @@
                  [org.clojure/tools.nrepl "0.2.4"]
                  [org.zeromq/cljzmq "0.1.4"]
                  [prismatic/plumbing "0.3.3"]
-                 [prismatic/schema "0.2.6"]]
+                 [prismatic/schema "0.3.1"]]
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))]
   :main frereth-client.core
   ;; Q: this gets included in production, doesn't it?

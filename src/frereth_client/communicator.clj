@@ -6,7 +6,6 @@
             [plumbing.core :refer :all]  ; ???
             [ribol.core :refer (raise)]
             [schema.core :as s]
-            [schema.macros :as sm]
             [taoensso.timbre :as timbre]
             [zeromq.zmq :as zmq])
   (:import [org.zeromq ZMQ$Context ZMQException])
@@ -18,7 +17,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(sm/defrecord ZmqContext [context :- ZMQ$Context
+(s/defrecord ZmqContext [context :- ZMQ$Context
                           thread-count :- s/Int]
   component/Lifecycle
   (start 
@@ -37,7 +36,7 @@
      (.close context))
    (assoc this :context nil)))
 
-(sm/defrecord URI [protocol :- s/Str
+(s/defrecord URI [protocol :- s/Str
                    address :- s/Str
                    port :- s/Int]
   component/Lifecycle
@@ -46,7 +45,7 @@
 (declare build-url)
 
 ;; Q: How do I want to handle the actual server connections?
-(sm/defrecord RendererSocket [context :- ZmqContext
+(s/defrecord RendererSocket [context :- ZmqContext
                               renderers
                               socket
                               renderer-url :- URI]
@@ -86,7 +85,7 @@
    (reset! renderers {})
    (assoc this :socket nil)))
 
-(sm/defrecord ServerSocket [context
+(s/defrecord ServerSocket [context
                             socket
                             url :- URI]
   component/Lifecycle
@@ -107,7 +106,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Utilities
 
-(sm/defn build-url :- s/Str
+(s/defn build-url :- s/Str
   [url :- URI]
   (let [port (:port url)]
     (str (:protocol url) "://"
@@ -168,7 +167,7 @@
                           :renderers (atom {})
                           :socket nil})))
 
-(sm/defn default-server-url :- URI
+(s/defn default-server-url :- URI
   ([protocol address port]
      (strict-map->URI {:protocol protocol
                        :address address
