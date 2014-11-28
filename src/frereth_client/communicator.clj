@@ -3,7 +3,7 @@
             [clojure.tools.logging :as log]
             [com.stuartsierra.component :as component]
             [frereth-client.config :as config]
-            [plumbing.core :refer :all]  ; ???
+            [plumbing.core :as plumbing]
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as timbre]
