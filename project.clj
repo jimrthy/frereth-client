@@ -29,7 +29,7 @@
                    :dependencies [[clj-ns-browser "1.3.1"]
                                   [com.cemerick/pomegranate "0.3.0" :exclusions [org.codehaus.plexus/plexus-utils]]
                                   [midje "1.6.3" :exclusions [joda-time]]
-                                  [org.clojure/tools.namespace "0.2.7"]
+                                  [org.clojure/tools.namespace "0.2.8"]
                                   [org.clojure/java.classpath "0.2.2"]]}}
   :repl-options {:init-ns user
                  :welcome (println "Run (dev) to start")}
