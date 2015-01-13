@@ -1,6 +1,5 @@
 (ns frereth-client.system
   (:require [clojure.core.async :as async]
-            [clojure.tools.logging :as log]            
             ;; Q: Debug only??
             [clojure.tools.trace :as trace]
             [com.stuartsierra.component :as component]
@@ -9,7 +8,8 @@
              [config :as config]
              [renderer :as render]
              [repl :as repl]
-             #_[server :as server]]))
+             #_[server :as server]]
+            [taoensso.timbre :as log]))
 
 (defn init
   [overriding-config-options]
