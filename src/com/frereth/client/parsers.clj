@@ -1,4 +1,4 @@
-(ns frereth-client.parsers)
+(ns com.frereth.client.parsers)
 
 (defn clj->cl
   "The bare-bones minimalist version seems to involve translating

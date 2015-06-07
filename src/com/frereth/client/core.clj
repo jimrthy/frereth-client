@@ -1,6 +1,6 @@
-(ns frereth-client.core
+(ns com.frereth.client.core
   (:require [com.stuartsierra.component :as component]
-            [frereth-client.system :as system])
+            [com.frereth.client.system :as system])
   (:gen-class))
 
 (defn -main

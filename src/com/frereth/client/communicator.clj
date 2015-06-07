@@ -1,8 +1,8 @@
-(ns frereth-client.communicator
+(ns com.frereth.client.communicator
   (:require [clojure.core.async :as async]
             [clojure.tools.logging :as log]
+            [com.frereth.client.config :as config]
             [com.stuartsierra.component :as component]
-            [frereth-client.config :as config]
             [plumbing.core :as plumbing]
             [ribol.core :refer (raise)]
             [schema.core :as s]
@@ -20,7 +20,7 @@
 (s/defrecord ZmqContext [context :- ZMQ$Context
                           thread-count :- s/Int]
   component/Lifecycle
-  (start 
+  (start
    [this]
    (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
                   (class thread-count) ") threads")]

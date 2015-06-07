@@ -1,8 +1,9 @@
-(ns frereth-client.utils
+(ns com.frereth.client.utils
   (:require [ribol.core :refer (raise)]))
 
-(defn error
-  "Somebody fuckd up"
+(comment
+  (defn error
+  "Somebody messed up"
   [obj]
   ;; This seems likely to make the stack trace even more useless
-  (raise [:obsolete {:reason "Ribol does this better. This should just go away"}]))
+  (raise [:obsolete {:reason "Ribol does this better. This should just go away"}])))

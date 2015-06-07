@@ -1,4 +1,4 @@
-(ns frereth-client.config)
+(ns com.frereth.client.config)
 
 (defn version-tag
   "Because lein install doesn't seem to actually be accomplishing anything"
@@ -22,7 +22,7 @@
 
 (defn server-timeout
   "How long should the client wait, as a baseline, before
-notifying the renderer that there are communications issues 
+notifying the renderer that there are communications issues
 with the server?"
   []
   50)

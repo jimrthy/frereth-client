@@ -1,14 +1,14 @@
-(ns frereth-client.system
+(ns com.frereth.client.system
   (:require [clojure.core.async :as async]
             ;; Q: Debug only??
             [clojure.tools.trace :as trace]
-            [com.stuartsierra.component :as component]
-            [frereth-client
+            [com.frereth.client
              [communicator :as comm]
              [config :as config]
              [renderer :as render]
              [repl :as repl]
              #_[server :as server]]
+            [com.stuartsierra.component :as component]
             [taoensso.timbre :as log]))
 
 (defn init
@@ -35,7 +35,3 @@
                    :context :zmq-context
                    :url :server-url}
           :zmq-context [:config]}))))
-
-
-
-

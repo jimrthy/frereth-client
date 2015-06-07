@@ -1,10 +1,10 @@
-(ns frereth-client.renderer
+(ns com.frereth.client.renderer
   (:require [clojure.core.async :as async]
             [clojure.tools.logging :as log]
-            #_[cljeromq.core :as mq]
-            [zeromq.zmq :as mq]
-            [frereth-client.config :as config]
-            [frereth-client.translator :as trnsltr]
+            [cljeromq.core :as mq]
+            #_[zeromq.zmq :as mq]
+            [com.frereth.client.config :as config]
+            [com.frereth.client.translator :as trnsltr]
             [ribol.core :refer :all]
             [taoensso.timbre :as timbre]))
 

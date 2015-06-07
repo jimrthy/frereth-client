@@ -1,4 +1,4 @@
-(ns frereth-client.repl
+(ns com.frereth.client.repl
   (:require [cider.nrepl :refer (cider-nrepl-handler)]
             [clojure.tools.nrepl.server :as nrepl-server]
             [com.stuartsierra.component :as component]
@@ -7,7 +7,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Schema
 
-(s/defrecord REPL [port :- s/Int 
+(s/defrecord REPL [port :- s/Int
                     stopper :- (s/make-fn-schema s/Bool [[]])]
   component/Lifecycle
 

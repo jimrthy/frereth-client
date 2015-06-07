@@ -1,4 +1,4 @@
-(ns frereth-client.server
+(ns com.frereth.client.server
   (:refer-clojure :exclude [read-strings])
   (:require [clojure.tools.reader.edn :as edn]
             ;;[cljeromq.core :as mq]
@@ -15,4 +15,3 @@
     (assert (= resp :oryl?)))
   (mq/send (list :icanhaz? {:me-speekz {:frereth [0 0 1]}}))
   (edn/read-string (mq/receive socket)))
-
