@@ -7,7 +7,7 @@
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             [clojure.tools.trace :as trace]
             [com.stuartsierra.component :as component]
-            [frereth-client.system :as system]))
+            [com.frereth.client.system :as system]))
 
 (def system nil)
 

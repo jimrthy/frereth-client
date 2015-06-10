@@ -1,4 +1,5 @@
 (ns com.frereth.client.system
+  "TODO: Almost all of this should go away"
   (:require [clojure.core.async :as async]
             ;; Q: Debug only??
             [clojure.tools.trace :as trace]

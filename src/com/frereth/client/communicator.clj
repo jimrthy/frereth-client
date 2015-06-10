@@ -1,5 +1,6 @@
 (ns com.frereth.client.communicator
-  (:require [clojure.core.async :as async]
+  (:require [cljeromq.core :as mq]
+            [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [com.frereth.client.config :as config]
             [com.stuartsierra.component :as component]
@@ -7,9 +8,9 @@
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as timbre]
-            [zeromq.zmq :as zmq])
-  (:import [org.zeromq ZMQ$Context ZMQException])
-  (:gen-class))
+            #_[zeromq.zmq :as zmq])
+  (:import [clojure.lang ExceptionInfo])
+  #_(:gen-class))
 
 ;;;; Can I handle all of the networking code in here?
 ;;;; Well, obviously I could. Do I want to?
@@ -17,7 +18,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(s/defrecord ZmqContext [context :- ZMQ$Context
+(s/defrecord ZmqContext [context :- mq/Context
                           thread-count :- s/Int]
   component/Lifecycle
   (start
@@ -25,15 +26,12 @@
    (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
                   (class thread-count) ") threads")]
      (println msg))
-   (let [ctx (zmq/context thread-count)]
+   (let [ctx (mq/context thread-count)]
      (assoc this :context ctx)))
   (stop
    [this]
    (when context
-     ;; Only applies to ZContext.
-     ;; Which is totally distinct from ZMQ$Context
-     (comment (zmq/close context))
-     (.close context))
+     (comment (mq/terminate! context)))
    (assoc this :context nil)))
 
 (s/defrecord URI [protocol :- s/Str
@@ -46,21 +44,21 @@
 
 ;; Q: How do I want to handle the actual server connections?
 (s/defrecord RendererSocket [context :- ZmqContext
-                              renderers
-                              socket
-                              renderer-url :- URI]
+                             renderers
+                             socket :- mq/Socket
+                             renderer-url :- URI]
   component/Lifecycle
   (start
    [this]
-   (let [sock  (zmq/socket (:context context) :router)
+   (let [sock  (mq/socket! (:context context) :router)
          actual-url (build-url renderer-url)]
      (try
        ;; TODO: Make this another option. It's really only
        ;; for debugging.
-       (zmq/set-router-mandatory sock 1)
-       (zmq/bind sock actual-url)
-       (catch ZMQException ex
-         (raise {:zmq-failure ex
+       (mq/set-router-mandatory! sock true)
+       (mq/bind! sock actual-url)
+       (catch ExceptionInfo ex
+         (raise {:cause ex
                  :binding renderer-url
                  :details actual-url})))
      ;; Q: What do I want to do about the renderers?
@@ -77,30 +75,30 @@
          ;; Or being smarter about tracking it.
          ;; Then again...the easy answer is just to check whether
          ;; we're using "inproc" as the protocol
-         (zmq/unbind socket (build-url renderer-url))
-         (catch ZMQException ex
+         (mq/unbind! socket (build-url renderer-url))
+         (catch ExceptionInfo ex
            (log/info ex "This usually isn't a real problem")))
        (log/debug "Can't unbind an inproc socket"))
-     (zmq/close socket))
+     (mq/close! socket))
    (reset! renderers {})
    (assoc this :socket nil)))
 
-(s/defrecord ServerSocket [context
-                            socket
-                            url :- URI]
+(s/defrecord ServerSocket [context :- ZmqContext
+                           socket :- mq/Socket
+                           url :- URI]
   component/Lifecycle
   (start
    [this]
-   (let [sock (zmq/socket (:context context) :dealer)]
-     (zmq/connect sock (build-url url))
+   (let [sock (mq/socket! (:context context) :dealer)]
+     (mq/connect! sock (build-url url))
      (assoc this :socket sock)))
 
   (stop
    [this]
    (when socket
-     (zmq/set-linger socket 0)
-     (zmq/disconnect socket (build-url url))
-     (zmq/close socket))
+     (mq/set-linger! socket 0)
+     (mq/disconnect! socket (build-url url))
+     (mq/close! socket))
    (assoc this :socket nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -115,6 +113,7 @@
          (when port
            (str ":" port)))))
 
+;;; Q: What was this next lock for?
 (comment (defrecord Communicator [command-channel
                                   context
                                   external-server-sockets
