@@ -3,6 +3,7 @@
   :dependencies [[byte-transforms "0.1.4"]  ;; Q: Does this make sense?
                  [com.frereth/common "0.0.1-SNAPSHOT"]
                  [com.postspectacular/rotor "0.1.0"]
+                 #_[org.clojure/java.classpath "0.2.2"]
                  [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
                  [org.clojure/tools.nrepl "0.2.10"]]
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))]
@@ -13,14 +14,13 @@
   ;; TODO: Look @ https://github.com/clojure-emacs/cider-nrepl
   ;; It has instructions for adding this as a dependency,
   ;; along with the specific middleware to repl-options
-  :plugins [[cider/cider-nrepl "0.8.2" :exclusions [org.clojure/java.classpath]]]
+  :plugins [#_[cider/cider-nrepl "0.8.2" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
                    :dependencies [[clj-ns-browser "1.3.1"]
                                   [com.cemerick/pomegranate "0.3.0"  ; :exclusions [org.codehaus.plexus/plexus-utils]
                                    ]
-                                  [org.clojure/tools.namespace "0.2.10"]
-                                  [org.clojure/java.classpath "0.2.2"]]}}
+                                  [org.clojure/tools.namespace "0.2.10"]]}}
   :repl-options {:init-ns user
                  :welcome (println "Run (dev) to start")}
   ;; Q: What's this needed for?

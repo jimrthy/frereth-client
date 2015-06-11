@@ -9,8 +9,7 @@
             [schema.core :as s]
             [taoensso.timbre :as timbre]
             #_[zeromq.zmq :as zmq])
-  (:import [clojure.lang ExceptionInfo])
-  #_(:gen-class))
+  (:import [clojure.lang ExceptionInfo]))
 
 ;;;; Can I handle all of the networking code in here?
 ;;;; Well, obviously I could. Do I want to?
