@@ -1,6 +1,6 @@
 (ns frereth-client.core-test
   (:use clojure.test
-        frereth-client.core))
+        com.frereth.client.core))
 
 (deftest a-test
   (testing "FIXME, I fail."

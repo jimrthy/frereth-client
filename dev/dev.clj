@@ -1,5 +1,6 @@
 (ns dev
-  (:require [clojure.java.io :as io]
+  (:require [cljeromq.core :as mq]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.pprint :refer (pprint)]
             [clojure.repl :refer :all]

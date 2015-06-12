@@ -171,7 +171,8 @@
                        :address address
                        :port port}))
   ([]
-     (default-server-url "inproc" "local" nil)))
+   ;; Start by defaulting to action
+   (default-server-url "tcp" "localhost" 7843)))
 
 
 (defn new-server
