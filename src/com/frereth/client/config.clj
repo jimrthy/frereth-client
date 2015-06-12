@@ -11,7 +11,8 @@
 (defn renderer-address [] "renderer<->client")
 (defn renderer-port [] (comment 7840) nil)
 
-(defn server-port [] 7841)
+(defn action-port [] 7841)
+(defn auth-port [] 7843)
 (defn nrepl-port [] 7842)
 
 (comment (defn render-url []

@@ -33,6 +33,10 @@
      (comment (mq/terminate! context)))
    (assoc this :context nil)))
 
+;;; TODO: URI should really just be a hash-map
+;;; It also needs a different name, to distinguish it
+;;; from the similar thing in java.util.
+;;; Or wherever it lives.
 (s/defrecord URI [protocol :- s/Str
                    address :- s/Str
                    port :- s/Int]
@@ -88,7 +92,8 @@
   component/Lifecycle
   (start
    [this]
-   (let [sock (mq/socket! (:context context) :dealer)]
+   (let [sock (mq/socket! (:context context) :req)]
+     (println "Connecting server socket to" url)
      (mq/connect! sock (build-url url))
      (assoc this :socket sock)))
 
@@ -112,7 +117,7 @@
          (when port
            (str ":" port)))))
 
-;;; Q: What was this next lock for?
+;;; Q: What was this next block for?
 (comment (defrecord Communicator [command-channel
                                   context
                                   external-server-sockets
@@ -172,7 +177,7 @@
                        :port port}))
   ([]
    ;; Start by defaulting to action
-   (default-server-url "tcp" "localhost" 7843)))
+   (default-server-url "tcp" "localhost" 7841)))
 
 
 (defn new-server
