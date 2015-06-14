@@ -92,7 +92,7 @@
   component/Lifecycle
   (start
    [this]
-   (let [sock (mq/socket! (:context context) #_:req :dealer)]
+   (let [sock (mq/socket! (:context context) :dealer)]
      (println "Connecting server socket to" url)
      (mq/connect! sock (build-url url))
      (assoc this :socket sock)))
