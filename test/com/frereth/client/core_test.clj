@@ -1,4 +1,4 @@
-(ns frereth-client.core-test
+(ns com.frereth.client.core-test
   (:use clojure.test
         com.frereth.client.core))
 

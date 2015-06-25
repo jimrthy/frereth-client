@@ -1,4 +1,4 @@
-(ns frereth-client.handshake-test
+(ns com.frereth.client.handshake-test
   (:require [cljeromq.core :as mq]
             [clojure.test :refer (deftest is)]))
 
