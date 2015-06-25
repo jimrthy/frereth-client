@@ -14,7 +14,7 @@
   ;; TODO: Look @ https://github.com/clojure-emacs/cider-nrepl
   ;; It has instructions for adding this as a dependency,
   ;; along with the specific middleware to repl-options
-  :plugins [#_[cider/cider-nrepl "0.8.2" :exclusions [org.clojure/java.classpath]]]
+  :plugins [[cider/cider-nrepl "0.9.1" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
                    :dependencies [[clj-ns-browser "1.3.1"]
