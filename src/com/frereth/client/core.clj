@@ -4,7 +4,7 @@
   (:gen-class))
 
 (defn -main
-  "I don't do a whole lot ... yet."
+  "Run the client-system as a stand-alone until it signals completion"
   [& args]
   (let [pre-universe (system/init)]
     (let [universe (component/start pre-universe)]
