@@ -12,10 +12,10 @@
   TODO: Move it into its own utility/test-helper namespace"
   []
   (let [descr '{:one com.frereth.common.async-zmq/ctor
-                :two com.frereth.common.async-zmq/ctor}
-        ctx (mq/context 1)
-        one-pair (mq/build-internal-pair! ctx)
-        two-pair (mq/build-internal-pair! ctx)
+                :two com.frereth.common.async-zmq/ctor
+                :ctx com.frereth.common.zmq-socket/ctx-ctor
+                :ex-one com.frereth.common.zmq-socket/ctor
+                :ex-two com.frereth.common.zmq-socket/ctor}
         ;; TODO: It's tempting to set these built-ins
         ;; as defaults, but they really won't be useful
         ;; very often
@@ -32,21 +32,30 @@
                          (mq/send! sock msg :dont-wait))
         writer1 (partial generic-writer "one")
         writer2 (partial generic-writer "two")
-        configuration-tree {:one {:mq-ctx ctx
-                                  :ex-sock (:lhs one-pair)
+        internal-url (name (gensym))
+        configuration-tree {:one {:_name "EventPairOne"
                                   :in-chan (async/chan)
                                   :external-reader reader
                                   :external-writer writer1}
-                            :two {:mq-ctx ctx
-                                  :ex-sock (:lhs two-pair)
+                            :two {:_name "EventPairTwo"
                                   :in-chan (async/chan)
                                   :external-reader reader
-                                  :external-writer writer2}}]
-    (assoc (cpt-dsl/build {:structure descr
-                           :dependencies {}}
-                          configuration-tree)
-           :other-sides {:one (:rhs one-pair)
-                         :two (:rhs two-pair)})))
+                                  :external-writer writer2}
+                            :ex-one {:url {:protocol :inproc
+                                           :address internal-url}
+                                     :sock-type :pair
+                                     :direction :bind}
+                            :ex-two {:url {:protocol :inproc
+                                           :address internal-url}
+                                     :sock-type :pair
+                                     :direction :connect}
+                            :ctx {:thread-count 2}}]
+    (cpt-dsl/build {:structure descr
+                    :dependencies {:one {:ex-sock :ex-one}
+                                   :two {:ex-sock :ex-two}
+                                   :ex-one [:ctx]
+                                   :ex-two [:ctx]}}
+                   configuration-tree)))
 
 (defn started-mock
   []
@@ -56,7 +65,8 @@
         ;; Replace the external-sock of loop two
         ;; with the "other-side" of loop one's
         ;; external socket
-        combined (assoc-in safe [:two :ex-sock]
+        combined (assoc-in safe
+                           [:two :ex-sock]
                            (:one others))]
     (component/start combined)))
 
@@ -78,10 +88,25 @@ I write, but I know better."
 
 (deftest echo
   []
-  (throw (RuntimeException. "Running echo"))
   (testing "Can send a request and get an echo back"
-    (is false "echo test is starting, right?")
     (let [test (fn [system]
-                 (is false "Getting into the meat of the echo test")
-                 (throw (RuntimeException. "Not Implemented")))]
+                 (let [left-chan (-> system :one :in-chan)
+                       right-chan (-> system :two :in-chan)
+                       msg '(+ 7 3)]
+                   (testing "Request sent"
+                     (let [[v c] (async/alts!! [[left-chan msg] (async/timeout 150)])]
+                       (is (= c left-chan))
+                       (is v)))
+                   (let [[v c] (async/alts!! [right-chan (async/timeout 750)])]
+                     (testing "Initial request received"
+                       (is (= c right-chan))
+                       (is (= msg v))))
+                   (let [[v c] (async/alts!! [[right-chan msg] (async/timeout 150)])]
+                     (testing "Response sent"
+                       (is (= c right-chan))
+                       (is v)))
+                   (let [[v c] (async/alts!! [left-chan (async/timeout 750)])]
+                     (testing "Echo received"
+                       (is (= c left-chan))
+                       (is (= msg v))))))]
       (with-mock test))))
