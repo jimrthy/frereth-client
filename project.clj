@@ -17,7 +17,7 @@
   :plugins [[cider/cider-nrepl "0.9.1" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
-                   :dependencies [[clj-ns-browser "1.3.1"]
+                   :dependencies [[clj-ns-browser "1.3.1" :exclusions [clojure-complete]]
                                   [com.cemerick/pomegranate "0.3.0"  ; :exclusions [org.codehaus.plexus/plexus-utils]
                                    ]
                                   [org.clojure/tools.namespace "0.2.10"]]}}

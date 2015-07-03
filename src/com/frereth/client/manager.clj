@@ -10,13 +10,11 @@
 ;;; Schema
 
 (s/defrecord CommunicationsLoopManager [local-action :- EventPair
-                                        action-socket :- SocketDescription
+                                        auth-loop :- EventPair
                                         local-controller :- EventPair
-                                        controller-socket :- SocketDescription
                                         ;; Realistically and theoretically, it's probably
-                                        ;; better to just put the local action and
-                                        ;; controller sockets under remotes.
-                                        ;; But they're really specially cases that happen
+                                        ;; better to just put those under remotes.
+                                        ;; But they're really specialty cases that happen
                                         ;; to be especially interesting at the beginning
                                         ;; TODO: Revisit this once the rope's across the
                                         ;; gorge
