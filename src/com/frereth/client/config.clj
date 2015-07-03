@@ -1,4 +1,5 @@
-(ns com.frereth.client.config)
+(ns com.frereth.client.config
+  "Big swathes of this are either obsolete or belong in common")
 
 (defn version-tag
   "Because lein install doesn't seem to actually be accomplishing anything"
@@ -11,7 +12,10 @@
 (defn renderer-address [] "renderer<->client")
 (defn renderer-port [] (comment 7840) nil)
 
-(defn action-port [] 7841)
+(comment
+  ;; This is overly naive: we can't know anything about this
+  ;; until the auth port connection tells us where to find it
+   (defn action-port [] 7841))
 (defn auth-port [] 7843)
 (defn nrepl-port [] 7842)
 

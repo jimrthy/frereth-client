@@ -1,5 +1,8 @@
 (ns com.frereth.client.manager
-  (:require [com.frereth.common.async-zmq]
+  (:require [cljeromq.core :as mq]
+[clojure.core.async :as async]
+            [com.frereth.common.async-zmq]
+            [com.frereth.common.schema :as com-skm]
             [com.frereth.common.zmq-socket]
             [com.stuartsierra.component :as component]
             [schema.core :as s])
@@ -9,29 +12,46 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(s/defrecord CommunicationsLoopManager [local-action :- EventPair
-                                        auth-loop :- EventPair
+(s/defrecord CommunicationsLoopManager [auth-sock :- SocketDescription
                                         local-controller :- EventPair
-                                        ;; Realistically and theoretically, it's probably
-                                        ;; better to just put those under remotes.
-                                        ;; But they're really specialty cases that happen
-                                        ;; to be especially interesting at the beginning
-                                        ;; TODO: Revisit this once the rope's across the
-                                        ;; gorge
-                                        remotes :- (s/maybe {SocketDescription EventPair})]
+                                        remotes :- com-skm/atom-type]
   component/Lifecycle
   (start
    [this]
-   ;; Q: Since I'm really dealing with nested SystemMap instances (aren't I?),
-   ;; do I need to handle calling start on the various dependencies?
-   ;; TODO: If not, this might as well just be a plain ol' hashmap
-   this)
+   (if-not remotes
+     (assoc this :remotes (atom {}))
+     this))
   (stop
    [this]
-   this))
+   (if remotes
+     (do
+       (doseq [remote remotes]
+         (let [chan (:in-chan remote)
+               sock (:ex-sock remote)]
+           (component/stop remote)
+           (async/close! chan)
+           (component/stop sock)))
+       (assoc this :remotes nil))
+     this)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
+
+(s/defn authorize :- EventPair
+  "Build an AUTH socket based on descr.
+Call f with it to handle the negotiation to a 'real'
+comms channel. Use that to build an EventPair using chan for the input.
+Add that EventPair to this' remotes.
+
+A major piece of this puzzle is that the socket description returned by f
+needs to have an AUTH token attached. And the server should regularly
+invalidate that token, forcing a re-AUTH."
+  [this :- CommunicationsLoopManager
+   descr :- SocketDescription
+   chan :- com-skm/async-channel
+   f]
+  (io!
+   (throw (RuntimeException. "Not Implemented: start here"))))
 
 (s/defn ctor :- CommunicationsLoopManager
   [options]
