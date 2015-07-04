@@ -1,7 +1,7 @@
 (ns com.frereth.client.core
   (:require [com.stuartsierra.component :as component]
             [com.frereth.client.system :as system])
-  (:gen-class))
+  #_(:gen-class))
 
 (defn -main
   "Run the client-system as a stand-alone until it signals completion"
