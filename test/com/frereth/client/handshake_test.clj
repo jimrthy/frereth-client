@@ -41,7 +41,12 @@
       (try
         (is (= 1 (-> system :mgr :remotes deref count)))
         (finally
-          (component/stop system))))))
+          (println "Stopping hand-shake test system")
+          (try
+            (component/stop system)
+            (println "Handshake system stopped successfully")
+            (finally
+              (println "Hand-shake test complete"))))))))
 
 (comment
   (deftest check-channel-close

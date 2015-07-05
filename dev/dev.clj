@@ -1,5 +1,6 @@
 (ns dev
   (:require [cljeromq.core :as mq]
+            [clojure.core.async :as async]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.pprint :refer (pprint)]
