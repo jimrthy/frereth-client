@@ -36,16 +36,18 @@
    (if remotes
      (do
        (doseq [remote @remotes]
+         ;; Q: Why am I shutting down the event
+         ;; loop before closing its communications pathways?
+         ;; A: Well, maybe there's an advantage to
+         ;; giving them the final opportunity to flush
+         ;; the pipeline, but it probably doesn't matter.
+         (component/stop remote)
          (let [interface (-> remote :event-loop :interface)
                chan (:in-chan interface)
                sock (:ex-sock interface)]
-           ;; Q: Why am I shutting down the event
-           ;; loop before closing its communications pathways?
-           ;; A: Well, maybe there's an advantage to
-           ;; giving them the final opportunity to flush
-           ;; the pipeline, but it probably doesn't matter.
-           (component/stop remote)
            ;; Q: Shouldn't that be a system that also stops/closes these?
+           ;; A: Yes. This is part of the EventPairInterface now
+           ;; TODO: Make this entire let block go away
            (comment (if chan
                       (async/close! chan)
                       (log/warn "Missing :in-chan in\n" (util/pretty remote)))
@@ -79,6 +81,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 (comment
+  ;; I used this to debug the basic idea behind what's going on in authorize.
   ;; Q: Is there any sort of meaningful/useful unit test
   ;; lurking around here?
   (let [prereq-descr {:structure '{:sock com.frereth.common.zmq-socket/ctor
@@ -123,8 +126,10 @@ invalidate that token, forcing a re-AUTH."
     chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)]
    (let [reader (fn [sock]
+                  ;; TODO: Get this written!
                   (throw (RuntimeException. "not implemented")))
          writer (fn [sock msg]
+                  ;; TODO: Get this written!
                   (throw (RuntimeException. "not implemented")))]
      (authorize this loop-name auth-descr chan f reader writer)))
   ([this :- CommunicationsLoopManager
