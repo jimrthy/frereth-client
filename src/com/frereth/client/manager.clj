@@ -126,10 +126,10 @@ invalidate that token, forcing a re-AUTH."
     chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)]
    (let [reader (fn [sock]
-                  ;; TODO: Get this written!
+                  ;; Q: What should this do?
                   (throw (RuntimeException. "not implemented")))
          writer (fn [sock msg]
-                  ;; TODO: Get this written!
+                  ;; Q: What should this do?
                   (throw (RuntimeException. "not implemented")))]
      (authorize this loop-name auth-descr chan f reader writer)))
   ([this :- CommunicationsLoopManager
@@ -139,7 +139,7 @@ invalidate that token, forcing a re-AUTH."
     f :- (s/=> socket-session SocketDescription)
     reader :- (s/=> com-skm/java-byte-array mq/Socket)
     writer :- (s/=> s/Any mq/Socket com-skm/java-byte-array)]
-   (let [auth-sock (component/start auth-descr)]
+   (let [auth-sock (component/start auth-descr)]  ; idempotent!!
      (try
        (let [{:keys [url auth-token]} (f auth-sock)
              sys-descr (describe-system)

@@ -3,6 +3,7 @@
             [clojure.core.async :as async]
             [clojure.test :refer (deftest is testing)]
             [com.frereth.client.manager :as mgr]
+            [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-sock]
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]
@@ -35,18 +36,19 @@
                                       :sock-type :pair
                                       :url {:address (name (gensym))
                                             :protocol :inproc}}))
-          loop-name "start/stop"
+          loop-name "manual start/stop"
           event-loop (mgr/authorize (:mgr system)
                                     loop-name
                                     (:fake-auth system)
                                     in->out
                                     fake-auth)]
-      ;; Don't do this!!
+      ;; Don't do this!! (this is where things hang)
       #_(component/stop system)
       system))
 
 )
 (deftest bogus-auth
+  ;; This seems more than a little ridiculous
   (testing "Can start, fake connections, and stop"
     (let [system (component/start (mock-up))
           in->out (async/chan)
@@ -64,21 +66,38 @@
       (try
         (let [remotes (-> system :mgr :remotes deref)  ; map of name/SystemMap (where SystemMap happens to include the EventPair et al)
               wrapped-event-loop (get remotes loop-name)]
+          (is wrapped-event-loop (str "Missing EventLoop '" loop-name "' in\n" (util/pretty remotes)))
           (is (= 1 (count remotes)))
-          (is (= (:event-loop wrapped-event-loop) event-loop))
+          (when-not (= wrapped-event-loop event-loop)
+            ;; All these tests should fail from that, but I can't really see what's happening
+            ;; So try breaking it down into disgusting detail
+            (is (= (keys event-loop) (-> wrapped-event-loop keys)))
+            ;; This is an implementation detail that is probably wrong.
+            ;; (authorize) returns the EventPair when it connects and updates itself
+            (is (= wrapped-event-loop event-loop)))
           (testing "Can send/receive status checks"
-            (let [iface (:event-loop-interface wrapped-event-loop)]
-              (async/go
-                (let [status-sink (:status-out iface)
-                      [v c] (async/alts! [status-sink (async/timeout 250)])]
-                  (is (= c status-sink))
+            (if-let [iface (:interface wrapped-event-loop)]
+              (do
+                (async/go
+                  ;; This is at least a little obnoxious, but I'm not
+                  ;; sure how else you could approach it.
+                  (testing "Receive result of status check request"
+                    (let [status-sink (:status-out iface)
+                          ;; It really shouldn't take a 1/4 second to get here, unless something
+                          ;; else went drastically wrong.
+                          [v c] (async/alts! [status-sink (async/timeout 250)])]
+                      (is (= c status-sink))
+                      (is v))))
+                (let [status-chan (:status-chan iface)
+                      [v c] (async/alts!! [status-chan (async/timeout 250)])]
                   (is v)))
-              (let [status-chan (:status-chan iface)
-                    [v c] (async/alts!! [status-chan (async/timeout 250)])]
-              (is v)))))
+              (is false (str "Missing :event-loop-interface in\n"
+                             (util/pretty wrapped-event-loop)
+                             ("with keys:\n" (keys wrapped-event-loop)))))))
         (finally
           (testing "Stopping hand-shake test system"
             (try
+              (println "Shutting everything down")
               (component/stop system)
               (println "Handshake system stopped successfully")
               (catch RuntimeException ex
