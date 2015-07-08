@@ -1,6 +1,6 @@
 (ns com.frereth.client.manager
   (:require [cljeromq.core :as mq]
-[clojure.core.async :as async]
+            [clojure.core.async :as async]
             [com.frereth.common.async-zmq :as async-zmq]
             [com.frereth.common.schema :as com-skm]
             [com.frereth.common.util :as util]
@@ -35,13 +35,17 @@
    [this]
    (if remotes
      (do
-       (doseq [remote @remotes]
+       (doseq [[_name remote] @remotes]
          ;; Q: Why am I shutting down the event
          ;; loop before closing its communications pathways?
          ;; A: Well, maybe there's an advantage to
          ;; giving them the final opportunity to flush
          ;; the pipeline, but it probably doesn't matter.
-         (component/stop remote)
+         (log/debug "Stopping remote " _name
+                    "\nwith keys:" (keys remote)
+                    "\nand auth token: " (:auth-token remote))
+         ;; FIXME: Shouldn't need to do this
+         (component/stop (dissoc remote :auth-token))
          (let [interface (-> remote :event-loop :interface)
                chan (:in-chan interface)
                sock (:ex-sock interface)]
@@ -54,7 +58,7 @@
                     (if sock
                       (component/stop sock)
                       (log/warn "Missing :ex-sock in\n" (util/pretty remote))))))
-       (log/debug "Finished stopping remotes")
+       (log/debug "Communications Loop Manager: Finished stopping remotes")
        (assoc this :remotes nil))
      this)))
 

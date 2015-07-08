@@ -20,7 +20,8 @@
                                               :address (name (gensym))}
                                         :sock-type :pair
                                         :direction :connect}}
-        dependencies {:fake-auth [:ctx]}]
+        dependencies {:fake-auth [:ctx]
+                      :mgr [:fake-auth]}]
     (cpt-dsl/build {:structure descr
                     :dependencies dependencies}
                    configuration-tree)))
@@ -50,6 +51,7 @@
 (deftest bogus-auth
   ;; This seems more than a little ridiculous
   (testing "Can start, fake connections, and stop"
+    (println "Top of bogus-auth. Thread count: " (util/thread-count))
     (let [system (component/start (mock-up))
           in->out (async/chan)
           fake-auth (fn [_]
@@ -58,11 +60,14 @@
                                       :url {:address (name (gensym))
                                             :protocol :inproc}}))
           loop-name "start/stop"
+          pre-event-thread-count (util/thread-count)
           event-loop (mgr/authorize (:mgr system)
                                     loop-name
                                     (:fake-auth system)
                                     in->out
                                     fake-auth)]
+      (println "After starting System, running " pre-event-thread-count "threads."
+               "After starting the EventPair, have" (util/thread-count))
       (try
         (let [remotes (-> system :mgr :remotes deref)  ; map of name/SystemMap (where SystemMap happens to include the EventPair et al)
               wrapped-event-loop (get remotes loop-name)]
@@ -76,8 +81,10 @@
             ;; (authorize) returns the EventPair when it connects and updates itself
             (is (= wrapped-event-loop event-loop)))
           (testing "Can send/receive status checks"
-            (if-let [iface (:interface wrapped-event-loop)]
+            (if-let [iface (:event-loop-interface wrapped-event-loop)]
               (do
+                (println "Kicking off background thread to listen for status check request\nThread count: "
+                         (util/thread-count))
                 (async/go
                   ;; This is at least a little obnoxious, but I'm not
                   ;; sure how else you could approach it.
@@ -86,24 +93,32 @@
                           ;; It really shouldn't take a 1/4 second to get here, unless something
                           ;; else went drastically wrong.
                           [v c] (async/alts! [status-sink (async/timeout 250)])]
+                      (println "Background status check thread. We either got a result or decided to quit waiting around\nThread Count:"
+                               (util/thread-count))
                       (is (= c status-sink))
                       (is v))))
                 (let [status-chan (:status-chan iface)
-                      [v c] (async/alts!! [status-chan (async/timeout 250)])]
+                      [v c] (async/alts!! [[status-chan :whatever] (async/timeout 250)])]
+                  (println "Status request message submitted. Thread count:" (util/thread-count))
                   (is v)))
-              (is false (str "Missing :event-loop-interface in\n"
+              (is false (str "Missing :interface in\n"
                              (util/pretty wrapped-event-loop)
                              ("with keys:\n" (keys wrapped-event-loop)))))))
         (finally
           (testing "Stopping hand-shake test system"
             (try
-              (println "Shutting everything down")
-              (component/stop system)
-              (println "Handshake system stopped successfully")
+              (println "Shutting everything down. Thread count: " (util/thread-count)
+                       "\nSystem: " (keys system)
+                       "\n" (util/pretty system)
+                       "\n**************************************")
+              (let [stopped (component/stop system)]
+                (println "Handshake system stopped successfully\n"
+                         (util/pretty stopped)))
               (catch RuntimeException ex
                 (println "Stopping hand-shake test system failed:\n" ex))
               (finally
-                (println "Hand-shake test complete")))))))))
+                (println "Hand-shake test complete. Remaining thread count:"
+                         (util/thread-count))))))))))
 
 (comment
   (deftest check-channel-close

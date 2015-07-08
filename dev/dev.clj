@@ -8,8 +8,9 @@
             [clojure.test :as test]
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             [clojure.tools.trace :as trace]
-            [com.stuartsierra.component :as component]
             [com.frereth.client.system :as system]
+            [com.frereth.common.util :as util]
+            [com.stuartsierra.component :as component]
             [schema.core :as s]))
 
 (def system nil)
