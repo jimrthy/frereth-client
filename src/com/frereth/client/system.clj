@@ -19,13 +19,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(def ClientSystem
+(def UnstartedClientSystem
   "Make it easier for others to validate"
   {:auth-sock SocketDescription
-   :ctx ContextWrapper
-   :control-message-loop EventPair
+   ;; :ctx ContextWrapper
+   ;; :control-message-loop EventPair
    :controller-socket SocketDescription
-   :message-loop-manager CommunicationsLoopManager})
+   ;; :message-loop-manager CommunicationsLoopManager
+   })
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
