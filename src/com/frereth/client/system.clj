@@ -3,13 +3,32 @@
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [com.frereth.client
-             [config :as cfg]]
+             [config :as cfg]
+             [manager]]
+            [com.frereth.common.async-zmq]
             [com.frereth.common.util :as util]
+            [com.frereth.common.zmq-socket :as zmq-sock]
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]
-            [schema.core :as s]
-            #_[taoensso.timbre :as log])
-  (:import [com.stuartsierra.component SystemMap]))
+            [schema.core :as s])
+  (:import [com.frereth.client.manager CommunicationsLoopManager]
+           [com.frereth.common.async_zmq EventPair]
+           [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
+           [com.stuartsierra.component SystemMap]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Schema
+
+(def ClientSystem
+  "Make it easier for others to validate"
+  {:auth-sock SocketDescription
+   :ctx ContextWrapper
+   :control-message-loop EventPair
+   :controller-socket SocketDescription
+   :message-loop-manager CommunicationsLoopManager})
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Public
 
 (s/defn init :- SystemMap
   [{:keys [ctx-thread-count
@@ -53,32 +72,8 @@
     (cpt-dsl/build descr
                    {:auth-sock {:sock-type :req
                                 :url auth-url}
+                    ;; TODO: These should go away
                     :controller-socket {:sock-type :dealer
                                         :url local-control-url}
                     :control-message-loop {:_name "control-loop"
                                            :in-chan local-control-chan}})))
-
-(comment (defn init
-           [overriding-config-options]
-           (set! *warn-on-reflection* true)
-
-           (let [cfg (into (config/defaults) overriding-config-options)]
-             ;; TODO: I really need to configure logging...don't I?
-             (-> (component/system-map
-                  :config cfg
-                  :done (promise)
-                  :renderer-handler (comm/new-renderer-handler cfg)
-                  :renderer-url (comm/new-renderer-url cfg)
-                  :repl (repl/new-repl {:port (:nrepl-port cfg)})
-                  :server (comm/new-server)
-                  :server-url (comm/default-server-url)
-                  :zmq-context (comm/new-context (:zmq-thread-count cfg)))
-                 (component/system-using
-                  {:renderer-handler {:config :config
-                                      :context :zmq-context
-                                      :renderer-url :renderer-url}
-                   :repl [:config]
-                   :server {:config :config
-                            :context :zmq-context
-                            :url :server-url}
-                   :zmq-context [:config]})))))
