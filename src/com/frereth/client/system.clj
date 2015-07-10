@@ -57,24 +57,11 @@
 
   (let [struct '{:auth-sock com.frereth.common.zmq-socket/ctor
                  :ctx com.frereth.common.zmq-socket/ctx-ctor
-                 :control-message-loop com.frereth.common.async-zmq/ctor  ; definitely for local server
-                 :controller-socket com.frereth.common.zmq-socket/ctor
                  :message-loop-manager com.frereth.client.manager/ctor}
         depends {:auth-sock [:ctx]
-                 :controller-socket [:ctx]
-                 ;; FIXME: This needs to go away
-                 ;; Provide it as part of the AUTH socket handshake, if
-                 ;; the Subject has any sort of Control authorization
-                 :control-message-loop {:ex-sock :controller-socket}
-                 :message-loop-manager {:auth-sock :auth-sock
-                                        :local-controller :control-message-loop}}
+                 :message-loop-manager [:auth-sock]}
         descr {:structure struct
                :dependencies depends}]
     (cpt-dsl/build descr
                    {:auth-sock {:sock-type :req
-                                :url auth-url}
-                    ;; TODO: These should go away
-                    :controller-socket {:sock-type :dealer
-                                        :url local-control-url}
-                    :control-message-loop {:_name "control-loop"
-                                           :in-chan local-control-chan}})))
+                                :url auth-url}})))
