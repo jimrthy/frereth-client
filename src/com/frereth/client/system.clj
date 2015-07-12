@@ -20,35 +20,24 @@
 ;;; Schema
 
 (def UnstartedClientSystem
-  "Make it easier for others to validate"
+  "Make it easier for others to validate
+
+I think this had something to do with the system validation
+part of the component library that I'm trying to use in
+frereth.web.
+
+I'm not very clear on other scenarios where it would make any sense."
   {:auth-sock SocketDescription
-   ;; :ctx ContextWrapper
-   ;; :control-message-loop EventPair
-   :controller-socket SocketDescription
-   ;; :message-loop-manager CommunicationsLoopManager
-   })
+   ;; TODO: This needs to go away
+   :controller-socket SocketDescription})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
 (s/defn init :- SystemMap
   [{:keys [ctx-thread-count
-           auth-url
-           local-control-url
-           local-control-chan]
+           auth-url]
     :or {ctx-thread-count (-> (util/core-count) dec)
-         ;; Here are prime examples of why my component-dsl needs to support update-in
-         ;; TODO: Don't allow default channels here
-         ;; These really need to be their own component,
-         ;; supplied by caller.
-         ;; But this is convenient for dev work
-         local-control-chan (async/chan)
-         ;; Server's expecting this to be inproc.
-         ;; For the sake of safety/security, should probably go that route.
-         ;; For now, I'm trying to come up with something vaguely interesting.
-         ;; Which could just as easily happen over the local-action-sock
-         local-control-url {:protocol :inproc
-                            :address "super-secret-control"}
          auth-url {:address "127.0.0.1"
                    :protocol :tcp
                    :port (cfg/auth-port)}}
