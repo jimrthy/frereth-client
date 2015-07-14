@@ -19,7 +19,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(def UnstartedClientSystem
+(comment
+  (def UnstartedClientSystem
   "Make it easier for others to validate
 
 I think this had something to do with the system validation
@@ -29,7 +30,7 @@ frereth.web.
 I'm not very clear on other scenarios where it would make any sense."
   {:auth-sock SocketDescription
    ;; TODO: This needs to go away
-   :controller-socket SocketDescription})
+   :controller-socket SocketDescription}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
@@ -47,10 +48,9 @@ I'm not very clear on other scenarios where it would make any sense."
   (let [struct '{:auth-sock com.frereth.common.zmq-socket/ctor
                  :ctx com.frereth.common.zmq-socket/ctx-ctor
                  :message-loop-manager com.frereth.client.manager/ctor}
-        depends {:auth-sock [:ctx]
-                 :message-loop-manager [:auth-sock]}
+        depends {:auth-sock [:ctx]}
         descr {:structure struct
                :dependencies depends}]
     (cpt-dsl/build descr
-                   {:auth-sock {:sock-type :req
+                   {:auth-sock {:sock-type :dealer
                                 :url auth-url}})))
