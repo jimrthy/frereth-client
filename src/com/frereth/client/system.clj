@@ -46,9 +46,11 @@ I'm not very clear on other scenarios where it would make any sense."
   (set! *warn-on-reflection* true)
 
   (let [struct '{:auth-sock com.frereth.common.zmq-socket/ctor
+                 :connection-manager com.frereth.client.connection-manager/ctor
                  :ctx com.frereth.common.zmq-socket/ctx-ctor
                  :message-loop-manager com.frereth.client.manager/ctor}
-        depends {:auth-sock [:ctx]}
+        depends {:auth-sock [:ctx]
+                 :connection-manager [:auth-sock]}
         descr {:structure struct
                :dependencies depends}]
     (cpt-dsl/build descr
