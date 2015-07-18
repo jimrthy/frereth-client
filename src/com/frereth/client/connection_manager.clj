@@ -2,13 +2,16 @@
   "Sets up basic auth w/ a server"
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
+            [clojure.edn :as edn]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.schema :as fr-skm]
             [com.frereth.common.util :as util]
             [com.stuartsierra.component :as component]
+            [joda-time :as dt]
             [ribol.core :refer (raise)]
             [schema.core :as s]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log])
+  (:import [org.joda.time DateTime]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -33,9 +36,19 @@
    [this]
    this))
 
-(def auth-dialog-description {:expires DateTime
-                              :client-script s/Str})
-(def optional-auth-dialog-description (s/Maybe auth-dialog-description))
+(def auth-dialog-description
+  "This is pretty much a half-baked idea.
+  Should really be downloading a template of HTML/javascript for doing
+the login. e.g. a URL for an OAUTH endpoint (or however those work).
+The 'expires' is really just for the sake of transitioning to a newer
+login dialog with software updates.
+
+The 'scripting' part is really interesting. It's a microcosm of the
+entire architecture. Part of it should run on the client. The rest should
+run here."
+  {:expires DateTime
+   :client-script s/Str})
+(def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internal
@@ -45,11 +58,24 @@
   [auth-sock :- mq/Socket]
   (com-comm/dealer-send! auth-sock :where-should-my-people-call-your-people))
 
+(s/defn translate-description-frames :- optional-auth-dialog-description
+  "TODO: Really, the deserialization seems like it should happen back in
+the com-comm layer.
+I keep waffling about that."
+  [frames :- fr-skm/byte-arrays]
+  (when (= (count frames) 1)
+    (let [s (String. (first frames))
+          descr (edn/read-string s)
+          expired (:expires descr)
+          now (dt/date-time)]
+      (when (< now expired)
+        descr))))
+
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   [this :- ConnectionManager
    potential-description :- optional-auth-dialog-description]
   "If we're missing the description, or it's expired, try to read a more recent"
-  (let [now (DateTime.)]
+  (let [now (dt/date-time)]
     (if (or (not potential-description)
             (< now (:expires potential-description)))
       (let [auth-sock (:auth-sock this)]
@@ -68,7 +94,7 @@
   [{:keys [respond]}]
   (async/>!! respond :hold-please))
 
-(s/defn dispatch-auth-request :- s/Any
+(s/defn dispatch-auth-request! :- s/Any
   [this :- ConnectionManager
    v
    c :- fr-skm/async-channel
@@ -91,14 +117,18 @@
     ;; the local server where there won't ever be any reason
     ;; for it to timeout.
     (request-auth-descr! auth-sock)
-    (async/go-loop [t-o (minutes-5)
-                    dialog-description nil]
-      (let [[v c] (async/alts! [auth-request to])]
-        (if v
-          (let [dialog-description (dispatch-auth-request this v c dialog-description)]
-            (recur (minutes-5) dialog-description))
-          (when (= t-o c)
-            (log/info "Auth Loop Creator: heartbeat")
+    (async/go
+      (loop [t-o (minutes-5)
+             dialog-description nil]
+        (let [[v c] (async/alts! [auth-request t-o])]
+          (when-let [continue
+                     ;; This feels overly unwieldy.
+                     (if v
+                       (let [dialog-description (dispatch-auth-request! this v c dialog-description)]
+                         true)
+                       (when (= t-o c)
+                         (log/info "Auth Loop Creator: heartbeat")
+                         true))]
             (recur (minutes-5) dialog-description))))
       (log/warn "ConnectionManager's auth-loop exited"))))
 
