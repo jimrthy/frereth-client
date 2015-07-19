@@ -19,22 +19,31 @@
 (declare auth-loop-creator)
 (s/defrecord ConnectionManager
     [auth-loop :- fr-skm/async-channel
-     auth-loop-stopper :- fr-skm/async-channel
      auth-request :- fr-skm/async-channel
      auth-sock :- mq/Socket]
   component/Lifecycle
   (start
    [this]
-   (let [auth-loop-stopper (async/chan)
-         auth-request (async/chan)
+   (let [auth-request (async/chan)
          almost (assoc this
-                       :auth-loop-stopper auth-loop-stopper
                        :auth-request auth-request)
+         ;; I'm dubious about placing this in the start loop.
+         ;; Setting up connections like this is pretty much the
+         ;; entire point.
+         ;; But...it feels wrong.
          auth-loop (auth-loop-creator almost)]
      (assoc almost :auth-loop this)))
   (stop
    [this]
-   this))
+   (when auth-request
+     (async/close! auth-request))
+   (when auth-loop
+     (let [[v c] (async/alts!! auth-loop (async/timeout 1500))]
+       (when (not= c auth-loop)
+         (log/error "Timed out waiting for AUTH loop to exit"))))
+   (assoc this
+          :auth-request nil
+          :auth-loop nil)))
 
 (def auth-dialog-description
   "This is pretty much a half-baked idea.
@@ -64,7 +73,8 @@ the com-comm layer.
 I keep waffling about that."
   [frames :- fr-skm/byte-arrays]
   (when (= (count frames) 1)
-    (let [s (String. (first frames))
+    (let [#^bytes frame (first frames)
+          s (String. frame)
           descr (edn/read-string s)
           expired (:expires descr)
           now (dt/date-time)]
@@ -109,7 +119,10 @@ I keep waffling about that."
     (send-wait! v)))
 
 (s/defn auth-loop-creator :- fr-skm/async-channel
-  [{:keys [auth-loop-stopper auth-request auth-sock]
+  "Set up the auth loop
+This is just an async-zmq/EventPair
+TODO: Switch to that"
+  [{:keys [auth-request auth-sock]
     :as this} :- ConnectionManager]
   (let [minutes-5 (partial async/timeout (* 5 (util/minute)))]
     ;; It seems almost wasteful to start this before there's any
