@@ -6,12 +6,14 @@
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.schema :as fr-skm]
             [com.frereth.common.util :as util]
+            [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [joda-time :as dt]
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as log])
-  (:import [org.joda.time DateTime]))
+  (:import [org.joda.time DateTime]
+           [com.frereth.common.zmq_socket SocketDescription]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -32,13 +34,13 @@
          ;; entire point.
          ;; But...it feels wrong.
          auth-loop (auth-loop-creator almost)]
-     (assoc almost :auth-loop this)))
+     (assoc almost :auth-loop auth-loop)))
   (stop
    [this]
    (when auth-request
      (async/close! auth-request))
    (when auth-loop
-     (let [[v c] (async/alts!! auth-loop (async/timeout 1500))]
+     (let [[v c] (async/alts!! [auth-loop (async/timeout 1500)])]
        (when (not= c auth-loop)
          (log/error "Timed out waiting for AUTH loop to exit"))))
    (assoc this
@@ -64,8 +66,11 @@ run here."
 
 (s/defn request-auth-descr!
   "Signal the server that we want to get in touch"
-  [auth-sock :- mq/Socket]
-  (com-comm/dealer-send! auth-sock :where-should-my-people-call-your-people))
+  [auth-sock :- SocketDescription]
+  ;; I'm jumping through too many hoops to get this to work.
+  ;; TODO: Make dealer-send smarter
+  (let [serialized (-> :where-should-my-people-call-your-people pr-str .getBytes vector)]
+    (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
 (s/defn translate-description-frames :- optional-auth-dialog-description
   "TODO: Really, the deserialization seems like it should happen back in
@@ -89,7 +94,7 @@ I keep waffling about that."
     (if (or (not potential-description)
             (< now (:expires potential-description)))
       (let [auth-sock (:auth-sock this)]
-        (if-let [description-frames (com-comm/dealer-recv! auth-sock)]
+        (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
           ;; Note that this newly received description could also be expired already
           (translate-description-frames description-frames)  ; Previous request triggered this
           (request-auth-descr! auth-sock)))  ; trigger another request
@@ -148,7 +153,8 @@ TODO: Switch to that"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
-(s/defn ^:always-validate initiate-handshake :- optional-auth-dialog-description
+(s/defn initiate-handshake :- optional-auth-dialog-description
+  "TODO: ^:always-validate"
   [this :- ConnectionManager
    attempts :- s/Int
    timeout-ms :- s/Int]
