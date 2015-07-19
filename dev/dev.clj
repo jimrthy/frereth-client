@@ -8,6 +8,7 @@
             [clojure.test :as test]
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             [clojure.tools.trace :as trace]
+            [com.frereth.client.connection-manager :as con-man]
             [com.frereth.client.system :as system]
             [com.frereth.common.util :as util]
             [com.stuartsierra.component :as component]

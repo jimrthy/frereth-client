@@ -56,7 +56,7 @@ login dialog with software updates.
 
 The 'scripting' part is really interesting. It's a microcosm of the
 entire architecture. Part of it should run on the client. The rest should
-run here."
+run on the Renderer."
   {:expires DateTime
    :client-script s/Str})
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
@@ -69,7 +69,12 @@ run here."
   [auth-sock :- SocketDescription]
   ;; I'm jumping through too many hoops to get this to work.
   ;; TODO: Make dealer-send smarter
-  (let [serialized (-> :where-should-my-people-call-your-people pr-str .getBytes vector)]
+  (let [msg {:character-encoding :utf-8
+             ;; Tie this socket to its SESSION: first step toward allowing
+             ;; secure server side socket to even think about having a
+             ;; conversation
+             :public-key (util/random-uuid)}
+        serialized (-> msg pr-str .getBytes vector)]
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
 (s/defn translate-description-frames :- optional-auth-dialog-description
@@ -100,16 +105,16 @@ I keep waffling about that."
           (request-auth-descr! auth-sock)))  ; trigger another request
       potential-description)))  ; Last received version still good
 
-(s/defn ^:always-validate send-auth-descr-response!
+(s/defn send-auth-descr-response!
   [{:keys [respond]}
    current-description :- auth-dialog-description]
   (async/>!! respond current-description))
 
-(s/defn ^:always-validate send-wait!
+(s/defn send-wait!
   [{:keys [respond]}]
   (async/>!! respond :hold-please))
 
-(s/defn dispatch-auth-request! :- s/Any
+(s/defn dispatch-auth-response! :- s/Any
   [this :- ConnectionManager
    v
    c :- fr-skm/async-channel
@@ -122,6 +127,22 @@ I keep waffling about that."
   (if-let [current-description (unexpired-auth-description this current-description)]
     (send-auth-descr-response! v current-description)
     (send-wait! v)))
+
+(s/defn handle-possible-incoming! :- optional-auth-dialog-description
+  "This is pretty awkward.
+It was worse before I refactored it out of the middle of auth-loop-creator"
+  [{:keys [auth-request]
+    :as this}
+   dialog-description :- optional-auth-dialog-description
+   v :- optional-auth-dialog-description
+   c :- fr-skm/async-channel]
+  (if v
+    ;; Optimal scenario:
+    ;; Had a nil dialog-description. Have the real one waiting from the server.
+    (dispatch-auth-response! this v c dialog-description)
+    (when (not= auth-request c)
+      (log/info "Auth Loop Creator: heartbeat")
+      dialog-description)))
 
 (s/defn auth-loop-creator :- fr-skm/async-channel
   "Set up the auth loop
@@ -138,16 +159,18 @@ TODO: Switch to that"
     (async/go
       (loop [t-o (minutes-5)
              dialog-description nil]
-        (let [[v c] (async/alts! [auth-request t-o])]
-          (when-let [continue
-                     ;; This feels overly unwieldy.
-                     (if v
-                       (let [dialog-description (dispatch-auth-request! this v c dialog-description)]
-                         true)
-                       (when (= t-o c)
-                         (log/info "Auth Loop Creator: heartbeat")
-                         true))]
-            (recur (minutes-5) dialog-description))))
+        (let [updated-dialog-description
+              (try
+                (let [[v c] (async/alts! [auth-request t-o])]
+                  (handle-possible-incoming! this dialog-description v c))
+                (catch RuntimeException ex
+                  (log/error ex "Dispatching an auth request.\nMake this fatal for dev time.")
+                  (raise {:problem ex
+                          :component this
+                          :details {:dialog-description dialog-description
+                                    :auth-request auth-request
+                                    :time-out t-o}})))]
+          (recur (minutes-5) updated-dialog-description)))
       (log/warn "ConnectionManager's auth-loop exited"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -169,7 +192,9 @@ TODO: Switch to that"
               (do
                 (log/info "Request for AUTH dialog ACK'd. Waiting...")
                 (recur (dec remaining-attempts)))
-              v)
+              (do
+                (log/debug "Successfully asked transmitter to return reply on:\n " responder)
+                responder))
             (if (= c transmitter)
               (log/error "Auth channel closed")
               (do
