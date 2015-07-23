@@ -95,8 +95,10 @@ I keep waffling about that."
   [this :- ConnectionManager
    potential-description :- optional-auth-dialog-description]
   "If we're missing the description, or it's expired, try to read a more recent"
+  (log/debug "The description we have now:\n" (util/pretty potential-description))
   (let [now (dt/date-time)]
     (if (or (not potential-description)
+            (not (:expires potential-description))
             (< now (:expires potential-description)))
       (let [auth-sock (:auth-sock this)]
         (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
@@ -201,6 +203,8 @@ TODO: Switch to that"
                 (log/warn "Timed out trying to transmit request for AUTH dialog.\n"
                           (dec remaining-attempts) " attempts remaining")
                 (recur (dec remaining-attempts))))))))))
+(comment
+  (initiate-handshake (:connection-manager system) 5 2000))
 
 (s/defn ctor :- ConnectionManager
   [{:keys [url]}]

@@ -9,7 +9,7 @@
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))]
   :license {:name "Eclipse Public License"
             :url "http://http://www.eclipse.org/legal/epl-v10.html"}
-  :main com.frereth.client.core
+  ;:main com.frereth.client.core
   ;; Q: this gets included in production, doesn't it?
   ;; TODO: Look @ https://github.com/clojure-emacs/cider-nrepl
   ;; It has instructions for adding this as a dependency,
