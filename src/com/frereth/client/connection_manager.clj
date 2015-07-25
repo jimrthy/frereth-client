@@ -22,13 +22,20 @@
 (s/defrecord ConnectionManager
     [auth-loop :- fr-skm/async-channel
      auth-request :- fr-skm/async-channel
-     auth-sock :- mq/Socket]
+     auth-sock :- mq/Socket
+     dialog-description :- fr-skm/atom-type
+     status-check :- fr-skm/async-channel]
   component/Lifecycle
   (start
    [this]
-   (let [auth-request (async/chan)
+   (let [auth-request (or auth-request (async/chan))
+         status-check (or status-check (async/chan))
+         dialog-description (or dialog-description
+                                (atom nil))
          almost (assoc this
-                       :auth-request auth-request)
+                       :auth-request auth-request
+                       :dialog-description dialog-description
+                       :status-check status-check)
          ;; I'm dubious about placing this in the start loop.
          ;; Setting up connections like this is pretty much the
          ;; entire point.
@@ -39,13 +46,17 @@
    [this]
    (when auth-request
      (async/close! auth-request))
+   (when status-check
+     (async/close! status-check))
    (when auth-loop
      (let [[v c] (async/alts!! [auth-loop (async/timeout 1500)])]
        (when (not= c auth-loop)
          (log/error "Timed out waiting for AUTH loop to exit"))))
    (assoc this
           :auth-request nil
-          :auth-loop nil)))
+          :auth-loop nil
+          :dialog-description nil
+          :status-check nil)))
 
 (def auth-dialog-description
   "This is pretty much a half-baked idea.
@@ -57,9 +68,16 @@ login dialog with software updates.
 The 'scripting' part is really interesting. It's a microcosm of the
 entire architecture. Part of it should run on the client. The rest should
 run on the Renderer."
-  {:expires DateTime
-   :client-script s/Str})
+  {:action-url mq/zmq-url
+   :expires DateTime
+   :public-key s/Any  ; This is actually a byte array
+   :session-token s/Any
+   :static-url s/Str})
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
+
+(def callback-channel
+  "Where do I send responses back to?"
+  {:respond fr-skm/async-channel})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internal
@@ -77,40 +95,34 @@ run on the Renderer."
         serialized (-> msg pr-str .getBytes vector)]
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
-(s/defn translate-description-frames :- optional-auth-dialog-description
-  "TODO: Really, the deserialization seems like it should happen back in
-the com-comm layer.
-I keep waffling about that."
-  [frames :- fr-skm/byte-arrays]
-  (when (= (count frames) 1)
-    (let [#^bytes frame (first frames)
-          s (String. frame)
-          descr (edn/read-string s)
-          expired (:expires descr)
-          now (dt/date-time)]
-      (when (< now expired)
-        descr))))
-
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
-  [this :- ConnectionManager
-   potential-description :- optional-auth-dialog-description]
   "If we're missing the description, or it's expired, try to read a more recent"
-  (log/debug "The description we have now:\n" (util/pretty potential-description))
-  (let [now (dt/date-time)]
-    (if (or (not potential-description)
-            (not (:expires potential-description))
-            (< now (:expires potential-description)))
-      (let [auth-sock (:auth-sock this)]
-        (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
-          ;; Note that this newly received description could also be expired already
-          (translate-description-frames description-frames)  ; Previous request triggered this
-          (request-auth-descr! auth-sock)))  ; trigger another request
-      potential-description)))  ; Last received version still good
+  [this :- ConnectionManager]
+  (if-let [dscr-atom (:dialog-description this)]
+    (let [potential-description (deref dscr-atom)
+          now (dt/date-time)]
+      (log/debug "The description we have now:\n" (util/pretty potential-description))
+      (if (or (not potential-description)
+              (not (:expires potential-description))
+              (dt/after? now (dt/date-time (:expires potential-description))))
+        (let [auth-sock (:auth-sock this)]
+          (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
+            ;; Note that this newly received description could also be expired already
+            ;; TODO: Check for that scenario
+            description-frames  ; A previous request triggered this
+            (do (request-auth-descr! auth-sock)
+                nil))) ; trigger another request
+        potential-description))    ; Last received version still good
+    (log/error "Missing atom for dialog description in " (keys this))))
 
 (s/defn send-auth-descr-response!
-  [{:keys [respond]}
-   current-description :- auth-dialog-description]
-  (async/>!! respond current-description))
+  [{:keys [dialog-description]}
+   destination :- callback-channel
+   new-description :- auth-dialog-description]
+  (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
+             new-description)
+  (reset! dialog-description new-description)
+  (async/>!! (:respond destination) new-description))
 
 (s/defn send-wait!
   [{:keys [respond]}]
@@ -118,61 +130,70 @@ I keep waffling about that."
 
 (s/defn dispatch-auth-response! :- s/Any
   [this :- ConnectionManager
-   v
-   c :- fr-skm/async-channel
-   current-description :- optional-auth-dialog-description]
-  (when-not (= c (:auth-request this))
+   cb :- callback-channel
+   ch :- fr-skm/async-channel]
+  (log/debug "Incoming AUTH request to respond to:\n" cb)
+  (when-not (= ch (:auth-request this))
     (raise {:problem "Auth request on unexpected channel"
-            :details {:value v
-                      :channel c}
+            :details {:value cb
+                      :channel ch}
             :possibilities this}))
-  (if-let [current-description (unexpired-auth-description this current-description)]
-    (send-auth-descr-response! v current-description)
-    (send-wait! v)))
-
-(s/defn handle-possible-incoming! :- optional-auth-dialog-description
-  "This is pretty awkward.
-It was worse before I refactored it out of the middle of auth-loop-creator"
-  [{:keys [auth-request]
-    :as this}
-   dialog-description :- optional-auth-dialog-description
-   v :- optional-auth-dialog-description
-   c :- fr-skm/async-channel]
-  (if v
-    ;; Optimal scenario:
-    ;; Had a nil dialog-description. Have the real one waiting from the server.
-    (dispatch-auth-response! this v c dialog-description)
-    (when (not= auth-request c)
-      (log/info "Auth Loop Creator: heartbeat")
-      dialog-description)))
+  (if-let [current-description (unexpired-auth-description this)]
+    (send-auth-descr-response! this cb current-description)
+    (send-wait! cb)))
 
 (s/defn auth-loop-creator :- fr-skm/async-channel
   "Set up the auth loop
-This is just an async-zmq/EventPair
+This is just an async-zmq/EventPair.
+Actually, this is just an async/pipeline-async transducer.
 TODO: Switch to that"
-  [{:keys [auth-request auth-sock]
+  [{:keys [auth-request auth-sock status-check]
     :as this} :- ConnectionManager]
-  (let [minutes-5 (partial async/timeout (* 5 (util/minute)))]
+  (let [minutes-5 (partial async/timeout (* 5 (util/minute)))
+        done (promise)
+        interesting-channels [auth-request status-check]]
     ;; It seems almost wasteful to start this before there's any
     ;; interest to express. But the 90% (at least) use case is for
     ;; the local server where there won't ever be any reason
     ;; for it to timeout.
     (request-auth-descr! auth-sock)
     (async/go
-      (loop [t-o (minutes-5)
-             dialog-description nil]
-        (let [updated-dialog-description
-              (try
-                (let [[v c] (async/alts! [auth-request t-o])]
-                  (handle-possible-incoming! this dialog-description v c))
-                (catch RuntimeException ex
-                  (log/error ex "Dispatching an auth request.\nMake this fatal for dev time.")
-                  (raise {:problem ex
-                          :component this
-                          :details {:dialog-description dialog-description
-                                    :auth-request auth-request
-                                    :time-out t-o}})))]
-          (recur (minutes-5) updated-dialog-description)))
+      (loop [t-o (minutes-5)]
+        (try
+          ;; TODO: Really need a ribol manager in here to distinguish
+          ;; between the "stop-iteration" signal and actual errors
+          (let [[v c] (async/alts! (conj interesting-channels t-o))]
+            (log/debug "Incoming to AUTH loop:\n"
+                       v "\non\n" c)
+            (if (not= t-o c)
+              (if v
+                (if (= auth-request c)
+                  (dispatch-auth-response! this v c)
+                  (do
+                    (assert (= status-check c))
+                    ;; TODO: This absolutely needs to be an offer
+                    ;; TODO: Add error handling. Don't want someone to
+                    ;; break this loop by submitting, say, a keyword
+                    ;; instead of a channel
+                    (async/>! v "I'm alive")))
+                (deliver done true))  ; incoming channel closed. Exit loop
+              (log/debug "AUTH loop heartbeat")))
+          (catch RuntimeException ex
+            (log/error ex "Dispatching an auth request.\nThis should probably be fatal for dev time.")
+            (let [dialog-description-atom (:dialog-description this)
+                  dialog-description (if dialog-description-atom
+                                       (deref dialog-description-atom)
+                                       "missing atom")
+                  msg {:problem ex
+                       :component this
+                       :details {:dialog-description dialog-description
+                                 :auth-request auth-request
+                                 :time-out t-o}}]
+              (comment (raise msg))
+              (log/warn msg "\nI'm tired of being forced to (reset) every time I have a glitch"))))
+        (when (not (realized? done))
+          (log/debug "AUTH looping")
+          (recur (minutes-5))))
       (log/warn "ConnectionManager's auth-loop exited"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -196,6 +217,7 @@ TODO: Switch to that"
                 (recur (dec remaining-attempts)))
               (do
                 (log/debug "Successfully asked transmitter to return reply on:\n " responder)
+                ;; It isn't obvious, but this is the happy path
                 responder))
             (if (= c transmitter)
               (log/error "Auth channel closed")
@@ -204,7 +226,27 @@ TODO: Switch to that"
                           (dec remaining-attempts) " attempts remaining")
                 (recur (dec remaining-attempts))))))))))
 (comment
-  (initiate-handshake (:connection-manager system) 5 2000))
+  (require '[dev])
+  ;; Try out the handshake
+  (if-let [responder
+           (initiate-handshake (:connection-manager dev/system) 5 2000)]
+    (let [[v c] (async/alts!! [(:respond responder) (async/timeout 500)])]
+      (if v
+        v
+        (log/error "Response failed:\n"
+                   (if (= c (:respond responder))
+                     "Handshaker closed the response channel. This is bad."
+                     "Timed out waiting for response. This isn't great"))))
+    (log/error "Failed to submit handshake request"))
+
+  (let [response (async/chan)
+        [v c] (async/alts!! [[(-> dev/system :connection-manager :status-check) response]
+                             (async/timeout 500)])]
+    (if v
+      (let [[v c] (async/alts!! [response (async/timeout 500)])]
+        (log/info v)
+        v)
+      (log/error "Couldn't submit status request"))))
 
 (s/defn ctor :- ConnectionManager
   [{:keys [url]}]
