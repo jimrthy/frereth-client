@@ -1,5 +1,5 @@
 (ns com.frereth.client.system
-  "TODO: Almost all of this should go away"
+  "How it's all wired together"
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [com.frereth.client

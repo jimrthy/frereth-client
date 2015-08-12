@@ -1,5 +1,11 @@
 (ns com.frereth.client.connection-manager
-  "Sets up basic auth w/ a server"
+  "Sets up basic auth w/ a server.
+
+Based on commit history, this was originally the
+renderer portion, desiged to connect to the Client.
+
+So now I seem to have two competing implementations of
+essentially the same thing."
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.edn :as edn]
@@ -239,6 +245,7 @@ TODO: Switch to that"
                      "Timed out waiting for response. This isn't great"))))
     (log/error "Failed to submit handshake request"))
 
+  ;; Check on status
   (let [response (async/chan)
         [v c] (async/alts!! [[(-> dev/system :connection-manager :status-check) response]
                              (async/timeout 500)])]

@@ -1,4 +1,14 @@
 (ns com.frereth.client.manager
+  "Q: Should I be using this or the ConnectionManager?
+
+That seems a little higher level, and has been updated more recently.
+
+This has unit tests and seems more thoroughly fleshed out. Except for the
+part where it seems incomplete.
+
+This is what I had originally, then refactored that from the Renderer.
+I'm not sure why I'd have done such a thing. Any desktop app will require
+its own version of this."
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [com.frereth.common.async-zmq :as async-zmq]
@@ -16,11 +26,12 @@
 ;;; Schema
 
 (def remote-map
-  "This is really pretty meaningless, except possibly for documentation"
+  "Yes, this is really pretty meaningless, except possibly for documentation"
   (class (atom {s/Str EventPair})))
 
 (def socket-session
-  ""
+  "Each connected socket has its own AUTH token, issued by the server
+Note that we could have multiple connections (and even sessions) to the same server"
   {:url SocketDescription
    :auth-token com-skm/java-byte-array})
 
@@ -45,22 +56,14 @@
                     "\nwith keys:" (keys remote)
                     "\nand auth token: " (:auth-token remote))
          ;; FIXME: Shouldn't need to do this
-         (component/stop (dissoc remote :auth-token))
-         (let [interface (-> remote :event-loop :interface)
-               chan (:in-chan interface)
-               sock (:ex-sock interface)]
-           ;; Q: Shouldn't that be a system that also stops/closes these?
-           ;; A: Yes. This is part of the EventPairInterface now
-           ;; TODO: Make this entire let block go away
-           (comment (if chan
-                      (async/close! chan)
-                      (log/warn "Missing :in-chan in\n" (util/pretty remote)))
-                    (if sock
-                      (component/stop sock)
-                      (log/warn "Missing :ex-sock in\n" (util/pretty remote))))))
+         (component/stop (dissoc remote :auth-token)))
        (log/debug "Communications Loop Manager: Finished stopping remotes")
        (assoc this :remotes nil))
      this)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Internals
+;;; Yes, I'm flagrantly abusing the Components library here.
 
 (defn initial-system-structure
   []
