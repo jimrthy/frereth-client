@@ -106,17 +106,21 @@ run on the Renderer."
   [this :- ConnectionManager]
   (if-let [dscr-atom (:dialog-description this)]
     (let [potential-description (deref dscr-atom)
-          now (dt/date-time)]
+          now (dt/date-time)
+          expires (:expires potential-description)]
       (log/debug "The description we have now:\n" (util/pretty potential-description))
       (if (or (not potential-description)
-              (not (:expires potential-description))
-              (dt/after? now (dt/date-time (:expires potential-description))))
+              (not expires)
+              (dt/after? now (dt/date-time expires)))
         (let [auth-sock (:auth-sock this)]
+          (log/debug "Checking for updated AUTH description")
           (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
             ;; Note that this newly received description could also be expired already
             ;; TODO: Check for that scenario
             description-frames  ; A previous request triggered this
-            (do (request-auth-descr! auth-sock)
+            (do
+              (log/debug "No description available yet. Requesting...")
+              (request-auth-descr! auth-sock)
                 nil))) ; trigger another request
         potential-description))    ; Last received version still good
     (log/error "Missing atom for dialog description in " (keys this))))
@@ -222,7 +226,8 @@ TODO: Switch to that"
                 (log/info "Request for AUTH dialog ACK'd. Waiting...")
                 (recur (dec remaining-attempts)))
               (do
-                (log/debug "Successfully asked transmitter to return reply on:\n " responder)
+                (log/debug "Asked transmitter to return reply on:\n " responder
+                           "\nResponse:" v)
                 ;; It isn't obvious, but this is the happy path
                 responder))
             (if (= c transmitter)
