@@ -50,6 +50,9 @@ I'm not very clear on other scenarios where it would make any sense."
                  :ctx com.frereth.common.zmq-socket/ctx-ctor
                  :message-loop-manager com.frereth.client.manager/ctor}
         depends {:auth-sock [:ctx]
+                 ;; Note that the message-loop-manager does not depend
+                 ;; on the connection-manager, though it really seems like
+                 ;; it should
                  :connection-manager [:auth-sock]}
         descr {:structure struct
                :dependencies depends}]

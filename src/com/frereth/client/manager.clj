@@ -8,7 +8,15 @@ part where it seems incomplete.
 
 This is what I had originally, then refactored that from the Renderer.
 I'm not sure why I'd have done such a thing. Any desktop app will require
-its own version of this."
+its own version of this.
+
+A: This maintains the map of remotes to the EventPairs used to talk with
+them. It's designed to work in concert with the ConnectionManager: that
+establishes an initial connection, then this takes over to do the long-term
+bulk work.
+
+That needs to remain available in the background, to handle things like
+credentials/session expiration"
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [com.frereth.common.async-zmq :as async-zmq]
