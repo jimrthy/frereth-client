@@ -64,7 +64,14 @@ essentially the same thing."
           :dialog-description nil
           :status-check nil)))
 
-(def auth-dialog-description
+(def ui-description
+  "TODO: This really belongs in common
+And it needs to be fleshed out much more thoroughly"
+  {:html [s/Any]
+   :script [s/Any]
+   :css [s/Any]})
+
+(def base-auth-dialog-description
   "This is pretty much a half-baked idea.
   Should really be downloading a template of HTML/javascript for doing
 the login. e.g. a URL for an OAUTH endpoint (or however those work).
@@ -77,8 +84,14 @@ run on the Renderer."
   {:action-url mq/zmq-url
    :expires DateTime
    :public-key s/Any  ; This is actually a byte array
-   :session-token s/Any
-   :static-url s/Str})
+   :session-token s/Any})
+(def auth-dialog-url-description
+  "Server redirects us here to download the 'real' ui-description"
+  (assoc base-auth-dialog-description :static-url s/Str))
+(def auth-dialog-dynamic-description
+  "Server just sends us the ui-description directly"
+  (assoc base-auth-dialog-description :html ui-description))
+(def auth-dialog-description (s/either auth-dialog-url-description auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
 (def callback-channel
@@ -101,6 +114,19 @@ run on the Renderer."
         serialized (-> msg pr-str .getBytes vector)]
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
+(s/defn pre-process-auth-dialog :- optional-auth-dialog-description
+  ""
+  [description-frames :- auth-dialog-description]
+  ;; Note that this newly received description could also be expired already
+  ;; TODO: Check for that scenario
+
+  ;; TODO: If we have a dialog description, just forward it along for now
+  ;; Else if there's a static URL, download the dialog description from there
+  ;; (later).
+  ;; Else raise an error
+  (raise {:start-here "Do this"})
+  description-frames)
+
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   "If we're missing the description, or it's expired, try to read a more recent"
   [this :- ConnectionManager]
@@ -113,15 +139,20 @@ run on the Renderer."
               (not expires)
               (dt/after? now (dt/date-time expires)))
         (let [auth-sock (:auth-sock this)]
+          ;; This approach is totally wrong, though it made sense for the initial first
+          ;; draft. And it probably makes sense for the next little bit.
+          ;; But, honestly, we should just keep an atom of the dialog description
+          ;; sitting around somewhere and reference it.
+          ;; (edit: that part's handled by :dialog-description
+          ;; When the server notifies us about a change, cope with that notification
+          ;; appropriately
           (log/debug "Checking for updated AUTH description")
           (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
-            ;; Note that this newly received description could also be expired already
-            ;; TODO: Check for that scenario
-            description-frames  ; A previous request triggered this
+            (pre-process-auth-dialog description-frames)  ; pulled in from previous request
             (do
               (log/debug "No description available yet. Requesting...")
               (request-auth-descr! auth-sock)
-                nil))) ; trigger another request
+              nil))) ; trigger another request
         potential-description))    ; Last received version still good
     (log/error "Missing atom for dialog description in " (keys this))))
 
