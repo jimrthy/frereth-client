@@ -67,9 +67,11 @@ essentially the same thing."
 (def ui-description
   "TODO: This really belongs in common
 And it needs to be fleshed out much more thoroughly"
-  {:html [s/Any]
-   :script [s/Any]
-   :css [s/Any]})
+  {:data [s/Any]
+   ;; Scenarios without this seem rare, but nesting static
+   ;; data inside something else seems likely
+   (s/optional-key :script) [s/Any]
+   (s/optional-key :css) [s/Any]})
 
 (def base-auth-dialog-description
   "This is pretty much a half-baked idea.
@@ -90,7 +92,7 @@ run on the Renderer."
   (assoc base-auth-dialog-description :static-url s/Str))
 (def auth-dialog-dynamic-description
   "Server just sends us the ui-description directly"
-  (assoc base-auth-dialog-description :html ui-description))
+  (assoc base-auth-dialog-description :markup ui-description))
 (def auth-dialog-description (s/either auth-dialog-url-description auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
@@ -114,45 +116,61 @@ run on the Renderer."
         serialized (-> msg pr-str .getBytes vector)]
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
-(s/defn pre-process-auth-dialog :- optional-auth-dialog-description
-  ""
-  [description-frames :- auth-dialog-description]
-  ;; Note that this newly received description could also be expired already
-  ;; TODO: Check for that scenario
+(s/defn expired? :- s/Bool
+  [{:keys [expires] :as ui-description}]
+  (when (and ui-description
+             expires)
+    (let [now (dt/date-time)]
+      (dt/after? now (dt/date-time expires)))))
 
-  ;; TODO: If we have a dialog description, just forward it along for now
-  ;; Else if there's a static URL, download the dialog description from there
-  ;; (later).
-  ;; Else raise an error
-  (raise {:start-here "Do this"})
-  description-frames)
+(s/defn configure-session!
+  [world]
+  ;; TODO: this needs a lot of love.
+  ;; This should probably set up its own registrar/dispatcher layer
+  ;; Sooner or later, multiple renderers will be connecting to different
+  ;; apps.
+  ;; This is really the point to that
+  (log/error "Something interesting has to happen here"))
+
+(s/defn ^:always-validate pre-process-auth-dialog :- optional-auth-dialog-description
+  "Convert the dialog description to something the renderer can use"
+  [{:keys [action-url expires public-key session-token static-url world]
+    :as description-frames} :- auth-dialog-description]
+  (when-not (expired? auth-dialog-description)
+    (if world
+      (do (configure-session! world)
+          world)
+      (if static-url
+        (raise {:not-implemented (str "Download world from " static-url)})
+        (assert false "World missing both description and URL for downloading description")))))
 
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   "If we're missing the description, or it's expired, try to read a more recent"
   [this :- ConnectionManager]
   (if-let [dscr-atom (:dialog-description this)]
     (let [potential-description (deref dscr-atom)
-          now (dt/date-time)
           expires (:expires potential-description)]
       (log/debug "The description we have now:\n" (util/pretty potential-description))
-      (if (or (not potential-description)
-              (not expires)
-              (dt/after? now (dt/date-time expires)))
+      (if (expired? potential-description)
         (let [auth-sock (:auth-sock this)]
-          ;; This approach is totally wrong, though it made sense for the initial first
-          ;; draft. And it probably makes sense for the next little bit.
-          ;; But, honestly, we should just keep an atom of the dialog description
-          ;; sitting around somewhere and reference it.
-          ;; (edit: that part's handled by :dialog-description
+          ;; TODO: Need a background loop (would an EventPair be appropriate?)
+          ;; that updates :dialog-description as updates arrive
+          ;; Should not be accessing a raw socket here, under any circumstances
           ;; When the server notifies us about a change, cope with that notification
           ;; appropriately
           (log/debug "Checking for updated AUTH description")
           (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
-            (pre-process-auth-dialog description-frames)  ; pulled in from previous request
+            ;; server sent because of a previous request
+            ;; Have I mentioned that this approach is wrong?
+            ;; i.e. this approach will fail the first time, which means it will need to
+            ;; be repeated to get here
+            ;; It made sense the first time around
+            (pre-process-auth-dialog description-frames)
             (do
               (log/debug "No description available yet. Requesting...")
               (request-auth-descr! auth-sock)
               nil))) ; trigger another request
+
         potential-description))    ; Last received version still good
     (log/error "Missing atom for dialog description in " (keys this))))
 
