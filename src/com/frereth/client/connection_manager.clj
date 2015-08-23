@@ -18,7 +18,8 @@ essentially the same thing."
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as log])
-  (:import [org.joda.time DateTime]
+  (:import [clojure.lang ExceptionInfo]
+           [org.joda.time DateTime]
            [com.frereth.common.zmq_socket SocketDescription]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -65,13 +66,14 @@ essentially the same thing."
           :status-check nil)))
 
 (def ui-description
-  "TODO: This really belongs in common
+  "TODO: This really belongs in common.
+  Since, really, it's the over-arching interface between client and server.
 And it needs to be fleshed out much more thoroughly"
-  {:data [s/Any]
-   ;; Scenarios without this seem rare, but nesting static
-   ;; data inside something else seems likely
-   (s/optional-key :script) [s/Any]
-   (s/optional-key :css) [s/Any]})
+  {:data {:type s/Keyword
+          :version s/Int
+          :body s/Any
+          (s/optional-key :script) [s/Any]
+          (s/optional-key :css) [s/Any]}})
 
 (def base-auth-dialog-description
   "This is pretty much a half-baked idea.
@@ -84,15 +86,18 @@ The 'scripting' part is really interesting. It's a microcosm of the
 entire architecture. Part of it should run on the client. The rest should
 run on the Renderer."
   {:action-url mq/zmq-url
+   :character-encoding s/Keyword
    :expires DateTime
-   :public-key s/Any  ; This is actually a byte array
+   ;; This is actually a byte array, but, for dev testing, I'm just using a UUID
+   ;; TODO: Tighten this up once I have something resembling encryption
+   :public-key s/Any
    :session-token s/Any})
 (def auth-dialog-url-description
   "Server redirects us here to download the 'real' ui-description"
   (assoc base-auth-dialog-description :static-url s/Str))
 (def auth-dialog-dynamic-description
   "Server just sends us the ui-description directly"
-  (assoc base-auth-dialog-description :markup ui-description))
+  (assoc base-auth-dialog-description :world ui-description))
 (def auth-dialog-description (s/either auth-dialog-url-description auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
@@ -118,10 +123,14 @@ run on the Renderer."
 
 (s/defn expired? :- s/Bool
   [{:keys [expires] :as ui-description}]
-  (when (and ui-description
-             expires)
-    (let [now (dt/date-time)]
-      (dt/after? now (dt/date-time expires)))))
+  (let [inverted-result
+        (when (and ui-description
+                   expires)
+          (let [now (dt/date-time)]
+            (dt/after? now (dt/date-time expires))))]
+    (log/debug "Based on
+" (util/pretty ui-description) "and " expires ", the complement of expired? is: " inverted-result)
+    (not inverted-result)))
 
 (s/defn configure-session!
   [world]
@@ -132,17 +141,22 @@ run on the Renderer."
   ;; This is really the point to that
   (log/error "Something interesting has to happen here"))
 
-(s/defn ^:always-validate pre-process-auth-dialog :- optional-auth-dialog-description
+(s/defn pre-process-auth-dialog :- optional-auth-dialog-description
   "Convert the dialog description to something the renderer can use"
   [{:keys [action-url expires public-key session-token static-url world]
-    :as description-frames} :- auth-dialog-description]
-  (when-not (expired? auth-dialog-description)
-    (if world
-      (do (configure-session! world)
-          world)
-      (if static-url
-        (raise {:not-implemented (str "Download world from " static-url)})
-        (assert false "World missing both description and URL for downloading description")))))
+    :as incoming-frame} :- auth-dialog-description]
+  (log/debug "Pre-processing:n" (util/pretty incoming-yframe))
+  (try
+    (let [frame (s/validate auth-dialog-description incoming-frame)]
+      (when-not (expired? frame)
+        (if world
+          (do (configure-session! world)
+              world)
+          (if static-url
+            (raise {:not-implemented (str "Download world from " static-url)})
+            (assert false "World missing both description and URL for downloading description")))))
+    (catch ExceptionInfo ex
+      (log/error ex "Incoming frame was bad"))))
 
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   "If we're missing the description, or it's expired, try to read a more recent"
@@ -165,7 +179,10 @@ run on the Renderer."
             ;; i.e. this approach will fail the first time, which means it will need to
             ;; be repeated to get here
             ;; It made sense the first time around
-            (pre-process-auth-dialog description-frames)
+            (do
+              (log/debug "Calling pre-process with:
+" (util/pretty description-frames))
+              (pre-process-auth-dialog description-frames))
             (do
               (log/debug "No description available yet. Requesting...")
               (request-auth-descr! auth-sock)
@@ -307,7 +324,9 @@ TODO: Switch to that"
       (let [[v c] (async/alts!! [response (async/timeout 500)])]
         (log/info v)
         v)
-      (log/error "Couldn't submit status request"))))
+      (log/error "Couldn't submit status request")))
+
+)
 
 (s/defn ctor :- ConnectionManager
   [{:keys [url]}]
