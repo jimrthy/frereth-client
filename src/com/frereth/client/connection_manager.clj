@@ -19,8 +19,8 @@ essentially the same thing."
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
-           [org.joda.time DateTime]
-           [com.frereth.common.zmq_socket SocketDescription]))
+           [com.frereth.common.zmq_socket SocketDescription]
+           [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -62,7 +62,7 @@ essentially the same thing."
    (assoc this
           :auth-request nil
           :auth-loop nil
-          :dialog-description nil
+          :dialog-description (atom nil)
           :status-check nil)))
 
 (def ui-description
@@ -87,7 +87,7 @@ entire architecture. Part of it should run on the client. The rest should
 run on the Renderer."
   {:action-url mq/zmq-url
    :character-encoding s/Keyword
-   :expires DateTime
+   :expires Date
    ;; This is actually a byte array, but, for dev testing, I'm just using a UUID
    ;; TODO: Tighten this up once I have something resembling encryption
    :public-key s/Any
@@ -98,7 +98,10 @@ run on the Renderer."
 (def auth-dialog-dynamic-description
   "Server just sends us the ui-description directly"
   (assoc base-auth-dialog-description :world ui-description))
-(def auth-dialog-description (s/either auth-dialog-url-description auth-dialog-dynamic-description))
+(def auth-dialog-description
+  (s/conditional
+   :static-url auth-dialog-url-description
+   :world auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
 (def callback-channel
@@ -127,7 +130,7 @@ run on the Renderer."
         (when (and ui-description
                    expires)
           (let [now (dt/date-time)]
-            (dt/after? now (dt/date-time expires))))]
+            (dt/before? now (dt/date-time expires))))]
     (log/debug "Based on
 " (util/pretty ui-description) "and " expires ", the complement of expired? is: " inverted-result)
     (not inverted-result)))
@@ -145,7 +148,7 @@ run on the Renderer."
   "Convert the dialog description to something the renderer can use"
   [{:keys [action-url expires public-key session-token static-url world]
     :as incoming-frame} :- auth-dialog-description]
-  (log/debug "Pre-processing:n" (util/pretty incoming-yframe))
+  (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (try
     (let [frame (s/validate auth-dialog-description incoming-frame)]
       (when-not (expired? frame)
