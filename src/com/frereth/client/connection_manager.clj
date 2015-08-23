@@ -125,7 +125,7 @@ run on the Renderer."
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
 (s/defn expired? :- s/Bool
-  [{:keys [expires] :as ui-description}]
+  [{:keys [expires] :as ui-description} :- optional-auth-dialog-description]
   (let [inverted-result
         (when (and ui-description
                    expires)
@@ -154,7 +154,7 @@ run on the Renderer."
       (when-not (expired? frame)
         (if world
           (do (configure-session! world)
-              world)
+              frame)
           (if static-url
             (raise {:not-implemented (str "Download world from " static-url)})
             (assert false "World missing both description and URL for downloading description")))))
@@ -165,8 +165,7 @@ run on the Renderer."
   "If we're missing the description, or it's expired, try to read a more recent"
   [this :- ConnectionManager]
   (if-let [dscr-atom (:dialog-description this)]
-    (let [potential-description (deref dscr-atom)
-          expires (:expires potential-description)]
+    (let [potential-description (deref dscr-atom)]
       (log/debug "The description we have now:\n" (util/pretty potential-description))
       (if (expired? potential-description)
         (let [auth-sock (:auth-sock this)]
