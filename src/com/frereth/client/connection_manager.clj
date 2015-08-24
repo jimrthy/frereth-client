@@ -182,8 +182,7 @@ run on the Renderer."
             ;; be repeated to get here
             ;; It made sense the first time around
             (do
-              (log/debug "Calling pre-process with:
-" (util/pretty description-frames))
+              (log/debug "Calling pre-process with:\n" (util/pretty description-frames))
               (pre-process-auth-dialog description-frames))
             (do
               (log/debug "No description available yet. Requesting...")
@@ -208,14 +207,8 @@ run on the Renderer."
 
 (s/defn dispatch-auth-response! :- s/Any
   [this :- ConnectionManager
-   cb :- callback-channel
-   ch :- fr-skm/async-channel]
+   cb :- callback-channel]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
-  (when-not (= ch (:auth-request this))
-    (raise {:problem "Auth request on unexpected channel"
-            :details {:value cb
-                      :channel ch}
-            :possibilities this}))
   (if-let [current-description (unexpired-auth-description this)]
     (send-auth-descr-response! this cb current-description)
     (send-wait! cb)))
@@ -246,7 +239,7 @@ TODO: Switch to that"
             (if (not= t-o c)
               (if v
                 (if (= auth-request c)
-                  (dispatch-auth-response! this v c)
+                  (dispatch-auth-response! this v)
                   (do
                     (assert (= status-check c))
                     ;; TODO: This absolutely needs to be an offer
