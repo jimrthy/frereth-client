@@ -66,9 +66,10 @@ essentially the same thing."
           :status-check nil)))
 
 (def ui-description
-  "TODO: This really belongs in common.
-  Since, really, it's the over-arching interface between client and server.
-And it needs to be fleshed out much more thoroughly"
+  "TODO: This (and the pieces that build upon it) really belong in common.
+Since, really, it's the over-arching interface between renderer and server.
+And it needs to be fleshed out much more thoroughly.
+This is the part that flows down to the Renderer"
   {:data {:type s/Keyword
           :version s/Int
           :body s/Any
@@ -131,8 +132,12 @@ run on the Renderer."
                    expires)
           (let [now (dt/date-time)]
             (dt/before? now (dt/date-time expires))))]
-    (log/debug "Based on
-" (util/pretty ui-description) "and " expires ", the complement of expired? is: " inverted-result)
+    (log/debug "Based on\n"
+               (util/pretty ui-description)
+               "and "
+               expires
+               ", the complement of expired? is: "
+               inverted-result)
     (not inverted-result)))
 
 (s/defn configure-session!
@@ -144,6 +149,10 @@ run on the Renderer."
   ;; This is really the point to that
   (log/error "Something interesting has to happen here"))
 
+(s/defn extract-renderer-pieces :- ui-description
+  [src :- auth-dialog-description]
+  (:world src))
+
 (s/defn pre-process-auth-dialog :- optional-auth-dialog-description
   "Convert the dialog description to something the renderer can use"
   [{:keys [action-url expires public-key session-token static-url world]
@@ -154,7 +163,7 @@ run on the Renderer."
       (when-not (expired? frame)
         (if world
           (do (configure-session! world)
-              frame)
+              (extract-renderer-pieces frame))
           (if static-url
             (raise {:not-implemented (str "Download world from " static-url)})
             (assert false "World missing both description and URL for downloading description")))))
@@ -188,8 +197,7 @@ run on the Renderer."
               (log/debug "No description available yet. Requesting...")
               (request-auth-descr! auth-sock)
               nil))) ; trigger another request
-
-        potential-description))    ; Last received version still good
+        (extract-renderer-pieces potential-description)))  ; Last received version still good
     (log/error "Missing atom for dialog description in " (keys this))))
 
 (s/defn send-auth-descr-response!
