@@ -65,13 +65,21 @@ essentially the same thing."
           :dialog-description (atom nil)
           :status-check nil)))
 
+;; TODO: Move this into common
+;; Note that, currently, it's copy/pasted into web's frereth.globals.cljs
+;; And it doesn't work
+;; Q: What's the issue? (aside from the fact that it's experimental)
+;; TODO: Ask on the mailing list
+(def world-id (s/cond-pre s/Keyword s/Str s/Uuid))
+
 (def ui-description
   "TODO: This (and the pieces that build upon it) really belong in common.
 Since, really, it's the over-arching interface between renderer and server.
 And it needs to be fleshed out much more thoroughly.
 This is the part that flows down to the Renderer"
   {:data {:type s/Keyword
-          :version s/Int
+          :version s/Any
+          :name s/Any ;world-id
           :body s/Any
           (s/optional-key :script) [s/Any]
           (s/optional-key :css) [s/Any]}})
@@ -116,7 +124,9 @@ run on the Renderer."
   "Signal the server that we want to get in touch"
   [auth-sock :- SocketDescription]
   ;; I'm jumping through too many hoops to get this to work.
-  ;; TODO: Make dealer-send smarter
+  ;; TODO: Make dealer-send do the serialization
+  ;; Actually, I thought it was already doing that
+  ;; TODO: Verify
   (let [msg {:character-encoding :utf-8
              ;; Tie this socket to its SESSION: first step toward allowing
              ;; secure server side socket to even think about having a
@@ -132,12 +142,12 @@ run on the Renderer."
                    expires)
           (let [now (dt/date-time)]
             (dt/before? now (dt/date-time expires))))]
-    (log/debug "Based on\n"
+    (log/debug "Based on\n'"
                (util/pretty ui-description)
-               "and "
+               "'\nand '"
                expires
-               ", the complement of expired? is: "
-               inverted-result)
+               "', the complement of expired? is: '"
+               inverted-result "'")
     (not inverted-result)))
 
 (s/defn configure-session!
@@ -161,9 +171,12 @@ run on the Renderer."
   (try
     (let [frame (s/validate auth-dialog-description incoming-frame)]
       (when-not (expired? frame)
+        (log/debug "Not expired!")
         (if world
-          (do (configure-session! world)
-              (extract-renderer-pieces frame))
+          (do
+            (log/debug "World is hard-coded in response")
+            (configure-session! world)
+            (extract-renderer-pieces frame))
           (if static-url
             (raise {:not-implemented (str "Download world from " static-url)})
             (assert false "World missing both description and URL for downloading description")))))
@@ -218,8 +231,13 @@ run on the Renderer."
    cb :- callback-channel]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
   (if-let [current-description (unexpired-auth-description this)]
-    (send-auth-descr-response! this cb current-description)
-    (send-wait! cb)))
+    (do
+      (log/debug "Current Description:\n"
+                 (util/pretty current-description))
+      (send-auth-descr-response! this cb current-description))
+    (do
+      (log/debug "Currently no description. Waiting...")
+      (send-wait! cb))))
 
 (s/defn auth-loop-creator :- fr-skm/async-channel
   "Set up the auth loop

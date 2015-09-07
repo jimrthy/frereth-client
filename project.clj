@@ -20,7 +20,8 @@
                    :dependencies [[clj-ns-browser "1.3.1" :exclusions [clojure-complete]]
                                   [com.cemerick/pomegranate "0.3.0"  ; :exclusions [org.codehaus.plexus/plexus-utils]
                                    ]
-                                  [org.clojure/tools.namespace "0.2.10"]]}}
+                                  [org.clojure/tools.namespace "0.2.10"]]
+                   :global-vars {*warn-on-reflection* true}}}
   :repl-options {:init-ns user
                  :welcome (println "Run (dev) to start")}
   ;; Q: What's this needed for?
