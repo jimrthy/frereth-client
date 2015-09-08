@@ -151,13 +151,17 @@ run on the Renderer."
     (not inverted-result)))
 
 (s/defn configure-session!
-  [world]
+  [this :- ConnectionManager
+   description :- auth-dialog-description]
   ;; TODO: this needs a lot of love.
   ;; This should probably set up its own registrar/dispatcher layer
   ;; Sooner or later, multiple renderers will be connecting to different
   ;; apps.
   ;; This is really the point to that
-  (log/error "Something interesting has to happen here"))
+  (let [description-holder (:dialog-description this)]
+    (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
+               description)
+    (reset! description-holder description)))
 
 (s/defn extract-renderer-pieces :- ui-description
   [src :- auth-dialog-description]
@@ -165,21 +169,27 @@ run on the Renderer."
 
 (s/defn pre-process-auth-dialog :- optional-auth-dialog-description
   "Convert the dialog description to something the renderer can use"
-  [{:keys [action-url expires public-key session-token static-url world]
+  [this :- ConnectionManager
+   {:keys [static-url world]
     :as incoming-frame} :- auth-dialog-description]
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (try
     (let [frame (s/validate auth-dialog-description incoming-frame)]
-      (when-not (expired? frame)
-        (log/debug "Not expired!")
-        (if world
-          (do
-            (log/debug "World is hard-coded in response")
-            (configure-session! world)
-            (extract-renderer-pieces frame))
-          (if static-url
-            (raise {:not-implemented (str "Download world from " static-url)})
-            (assert false "World missing both description and URL for downloading description")))))
+      (if-not (expired? frame)
+        (do
+          (log/debug "Not expired!")
+          (if world
+            (do
+              (log/debug "World is hard-coded in response")
+              (configure-session! this incoming-frame)
+              (extract-renderer-pieces frame))
+            (if static-url
+              (raise {:not-implemented (str "Download world from " static-url)})
+              (assert false "World missing both description and URL for downloading description"))))
+        (log/warn "Incoming frame, with keys:\n"
+                  (keys frame)
+                  "\nis already expired at: "
+                  (:expires frame))))
     (catch ExceptionInfo ex
       (log/error ex "Incoming frame was bad"))))
 
@@ -205,7 +215,7 @@ run on the Renderer."
             ;; It made sense the first time around
             (do
               (log/debug "Calling pre-process with:\n" (util/pretty description-frames))
-              (pre-process-auth-dialog description-frames))
+              (pre-process-auth-dialog this description-frames))
             (do
               (log/debug "No description available yet. Requesting...")
               (request-auth-descr! auth-sock)
@@ -217,9 +227,10 @@ run on the Renderer."
   [{:keys [dialog-description]}
    destination :- callback-channel
    new-description :- auth-dialog-description]
-  (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
-             new-description)
-  (reset! dialog-description new-description)
+  (comment
+    (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
+               new-description)
+    (reset! dialog-description new-description))
   (async/>!! (:respond destination) new-description))
 
 (s/defn send-wait!
