@@ -307,6 +307,21 @@ TODO: Switch to that"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
+(s/defn rpc
+  "For plain-ol' synchronous request/response exchanges"
+  ([this :- ConnectionManager
+    world-id
+    method :- s/Keyword
+    data :- s/Any
+    timeout-ms :- s/Int]
+   ;; TODO: Refactor initiate-handshake to use this?
+   (raise {:not-implemented "get this written"}))
+  ([this :- ConnectionManager
+    world-id
+    method :- s/Keyword
+    data :- s/Any]
+   (rpc this world-id method data 5000)))
+
 (s/defn initiate-handshake :- optional-auth-dialog-description
   "TODO: ^:always-validate"
   [this :- ConnectionManager
