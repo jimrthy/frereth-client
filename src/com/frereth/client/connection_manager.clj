@@ -307,20 +307,51 @@ TODO: Switch to that"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
-(s/defn rpc
-  "For plain-ol' synchronous request/response exchanges"
+(s/defn rpc :- (s/maybe fr-skm/async-channel)
+  "For plain-ol' asynchronous request/response exchanges"
   ([this :- ConnectionManager
+    ;; Schema for this is in web's global.cljs
+    ;; TODO: Move it into a .cljc in common
     world-id
     method :- s/Keyword
     data :- s/Any
     timeout-ms :- s/Int]
    ;; TODO: Refactor initiate-handshake to use this?
-   (raise {:not-implemented "get this written"}))
+  (let [receiver (async/chan)
+        responder {:respond receiver}
+        transmitter (-> this :worlds deref (get world-id))]
+    (let [[v c] (async/alts!! [[transmitter responder] (async/timeout timeout-ms)])]
+      (if v
+        (if (not= v :not-found)
+          (do
+            (log/debug "Asked transmitter to return reply on:\n " responder
+                       "\nResponse:" v)
+            ;; It isn't obvious, but this is the happy path
+            responder)
+          (raise :not-found))
+        (if (= c transmitter)
+          (log/error "channel to transmitter for world" world-id " closed")
+          (raise :timeout {}))))))
   ([this :- ConnectionManager
     world-id
     method :- s/Keyword
     data :- s/Any]
-   (rpc this world-id method data 5000)))
+   (rpc this world-id method data (* 5 util/seconds))))
+
+(s/defn rpc-sync
+  "True synchronous Request/Reply"
+  ([this :- ConnectionManager
+    world-id
+    method :- s/Keyword
+    data :- s/Any
+    timeout :- s/Int]
+   (let [responder (rpc this world-id method data timeout)]
+     (async/alts!! [responder (async/timeout timeout)])))
+  ([this :- ConnectionManager
+     world-id
+     method :- s/Keyword
+     data :- s/Any]
+   (rpc-sync this world-id method data (* 5 (util/seconds)))))
 
 (s/defn initiate-handshake :- optional-auth-dialog-description
   "TODO: ^:always-validate"
