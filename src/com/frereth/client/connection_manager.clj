@@ -271,8 +271,9 @@ TODO: Switch to that"
           ;; TODO: Really need a ribol manager in here to distinguish
           ;; between the "stop-iteration" signal and actual errors
           (let [[v c] (async/alts! (conj interesting-channels t-o))]
-            (log/debug "Incoming to AUTH loop:\n"
-                       v "\non\n" c)
+            (log/debug "Incoming to AUTH loop:\n'"
+                       v "' -- a " (class v)
+                       "\non\n" c)
             (if (not= t-o c)
               (if v
                 (if (= auth-request c)
@@ -284,7 +285,9 @@ TODO: Switch to that"
                     ;; break this loop by submitting, say, a keyword
                     ;; instead of a channel
                     (async/>! v "I'm alive")))
-                (deliver done true))  ; incoming channel closed. Exit loop
+                (do
+                  (log/warn "Incoming channel closed. Exiting AUTH loop")
+                  (deliver done true)))
               (log/debug "AUTH loop heartbeat")))
           (catch RuntimeException ex
             (log/error ex "Dispatching an auth request.\nThis should probably be fatal for dev time.")
