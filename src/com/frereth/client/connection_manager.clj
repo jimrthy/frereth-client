@@ -1,11 +1,17 @@
 (ns com.frereth.client.connection-manager
   "Sets up basic auth w/ a server.
 
-Based on commit history, this was originally the
-renderer portion, desiged to connect to the Client.
+That auth is really more of the handshake/cert exchange
+sort of thing. Once that part's done, this should hand off
+to a manager/CommunicationsLoopManager.
 
-So now I seem to have two competing implementations of
-essentially the same thing."
+Most common workflow that I foresee:
+
+That will probably start w/ an auth dialog provides links
+to new worlds (which will frequently be on the same server)
+and forward back through here when a player decides to connect
+with those.
+"
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.edn :as edn]
