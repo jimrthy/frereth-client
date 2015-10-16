@@ -19,19 +19,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(comment
-  (def UnstartedClientSystem
-  "Make it easier for others to validate
-
-I think this had something to do with the system validation
-part of the component library that I'm trying to use in
-frereth.web.
-
-I'm not very clear on other scenarios where it would make any sense."
-  {:auth-sock SocketDescription
-   ;; TODO: This needs to go away
-   :controller-socket SocketDescription}))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
@@ -39,6 +26,10 @@ I'm not very clear on other scenarios where it would make any sense."
   [{:keys [ctx-thread-count
            auth-url]
     :or {ctx-thread-count (-> (util/core-count) dec)
+         ;; Q: What do I want to do about connecting to external servers?
+         ;; Do each of those requests need their own ConnectionManager?
+         ;; It seems like a waste for them to bounce through the local
+         ;; Server, though that may well have been what I had in mind
          auth-url {:address "127.0.0.1"
                    :protocol :tcp
                    :port (cfg/auth-port)}}

@@ -41,6 +41,7 @@ with those.
   component/Lifecycle
   (start
    [this]
+   ;; Create pieces that weren't supplied externally
    (let [auth-request (or auth-request (async/chan))
          status-check (or status-check (async/chan))
          dialog-description (or dialog-description
@@ -49,10 +50,6 @@ with those.
                        :auth-request auth-request
                        :dialog-description dialog-description
                        :status-check status-check)
-         ;; I'm dubious about placing this in the start loop.
-         ;; Setting up connections like this is pretty much the
-         ;; entire point.
-         ;; But...it feels wrong.
          auth-loop (auth-loop-creator almost)]
      (assoc almost :auth-loop auth-loop)))
   (stop
@@ -123,6 +120,14 @@ run on the Renderer."
   "Where do I send responses back to?"
   {:respond fr-skm/async-channel})
 
+(def connection-request
+  {;; the url structure is already defined elsewhere
+   ;; TODO: Track it down
+   :url s/Any
+   :request-id world-id})
+
+(def connection-callback (into connection-request callback-channel))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internal
 
@@ -143,18 +148,20 @@ run on the Renderer."
 
 (s/defn expired? :- s/Bool
   [{:keys [expires] :as ui-description} :- optional-auth-dialog-description]
-  (let [inverted-result
+  (let [result
+        ;; I'm losing expires
         (when (and ui-description
                    expires)
           (let [now (dt/date-time)]
             (dt/before? now (dt/date-time expires))))]
-    (log/debug "Based on\n'"
+    (log/debug "Expiration check based on\n'"
                (util/pretty ui-description)
-               "'\nand '"
-               expires
-               "', the complement of expired? is: '"
-               inverted-result "'")
-    (not inverted-result)))
+               "\nwith keys: " (keys ui-description)
+               "'\nexpires on: '"
+               expires "', a " (class expires)
+               ", the complement of expired? is: '"
+               result "'")
+    result))
 
 (s/defn configure-session!
   [this :- ConnectionManager
@@ -171,41 +178,58 @@ run on the Renderer."
 
 (s/defn extract-renderer-pieces :- ui-description
   [src :- auth-dialog-description]
+  (log/debug "Extracting :world from:\n" (str (keys src)))
   (:world src))
+
+(s/defn public-key-matches? :- s/Bool
+  [public-key :- s/Uuid
+   request-id :- world-id]
+  ;; Really just a placeholder
+  ;; TODO: implement
+  true)
 
 (s/defn pre-process-auth-dialog :- optional-auth-dialog-description
   "Convert the dialog description to something the renderer can use"
   [this :- ConnectionManager
-   {:keys [static-url world]
-    :as incoming-frame} :- auth-dialog-description]
+   {:keys [public-key static-url world]
+    :as incoming-frame} :- auth-dialog-description
+   request-id :- world-id]
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
-  (try
-    (let [frame (s/validate auth-dialog-description incoming-frame)]
-      (if-not (expired? frame)
-        (do
-          (log/debug "Not expired!")
-          (if world
-            (do
-              (log/debug "World is hard-coded in response")
-              (configure-session! this incoming-frame)
-              (extract-renderer-pieces frame))
-            (if static-url
-              (raise {:not-implemented (str "Download world from " static-url)})
-              (assert false "World missing both description and URL for downloading description"))))
-        (log/warn "Incoming frame, with keys:\n"
-                  (keys frame)
-                  "\nis already expired at: "
-                  (:expires frame))))
-    (catch ExceptionInfo ex
-      (log/error ex "Incoming frame was bad"))))
+  (when (public-key-matches? public-key request-id)
+    (try
+      (let [frame (s/validate auth-dialog-description incoming-frame)]
+        (if-not (expired? frame)
+          (do
+            (log/debug "Not expired!")
+            (if world
+              (do
+                (log/debug "World is hard-coded in response")
+                (configure-session! this incoming-frame)
+                frame)
+              (if static-url
+                (raise {:not-implemented (str "Download world from " static-url)})
+                (assert false "World missing both description and URL for downloading description"))))
+          (log/warn "Incoming frame, with keys:\n"
+                    (keys frame)
+                    "\nis already expired at: "
+                    (:expires frame))))
+      (catch ExceptionInfo ex
+        (log/error ex "Incoming frame was bad")))))
 
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   "If we're missing the description, or it's expired, try to read a more recent"
-  [this :- ConnectionManager]
+  [this :- ConnectionManager
+   {:keys [protocol address port] :as url}
+   request-id :- world-id]
+  (when (not (and (= protocol :tcp)
+                  (= port 7848)
+                  (= address "127.0.0.1")))
+    (raise {:not-implemented url}))
   (if-let [dscr-atom (:dialog-description this)]
     (let [potential-description (deref dscr-atom)]
       (log/debug "The description we have now:\n" (util/pretty potential-description))
-      (if (expired? potential-description)
+      (if (not (expired? potential-description))
+        (extract-renderer-pieces potential-description)  ; Last received version still good
         (let [auth-sock (:auth-sock this)]
           ;; TODO: Need a background loop (would an EventPair be appropriate?)
           ;; that updates :dialog-description as updates arrive
@@ -213,6 +237,9 @@ run on the Renderer."
           ;; When the server notifies us about a change, cope with that notification
           ;; appropriately
           (log/debug "Checking for updated AUTH description")
+          ;; It seems like a mistake to just leave this queued on the socket
+          ;; until we need it.
+          ;; But it was an easy first step
           (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
             ;; server sent because of a previous request
             ;; Have I mentioned that this approach is wrong?
@@ -221,23 +248,24 @@ run on the Renderer."
             ;; It made sense the first time around
             (do
               (log/debug "Calling pre-process with:\n" (util/pretty description-frames))
-              (pre-process-auth-dialog this description-frames))
+              (extract-renderer-pieces (pre-process-auth-dialog this description-frames request-id)))
             (do
               (log/debug "No description available yet. Requesting...")
               (request-auth-descr! auth-sock)
-              nil))) ; trigger another request
-        (extract-renderer-pieces potential-description)))  ; Last received version still good
+              ;; trigger another request
+              nil)))))
     (log/error "Missing atom for dialog description in " (keys this))))
 
 (s/defn send-auth-descr-response!
-  [{:keys [dialog-description]}
-   destination :- callback-channel
+  [{:keys [dialog-description] :as this}
+   {:keys [request-id respond] :as destination} :- connection-callback
    new-description :- auth-dialog-description]
-  (comment
-    (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
-               new-description)
-    (reset! dialog-description new-description))
-  (async/>!! (:respond destination) new-description))
+  (comment (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
+                      new-description)
+           ;; Q: Why did I think that eliminating this would be a good idea?
+           ;; A: Because this simply does not belong in here
+           (reset! dialog-description new-description))
+  (async/>!! respond (assoc new-description :request-id request-id)))
 
 (s/defn send-wait!
   [{:keys [respond]}]
@@ -245,9 +273,9 @@ run on the Renderer."
 
 (s/defn dispatch-auth-response! :- s/Any
   [this :- ConnectionManager
-   cb :- callback-channel]
+   cb :- connection-callback]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
-  (if-let [current-description (unexpired-auth-description this)]
+  (if-let [current-description (unexpired-auth-description this (:url cb) (:request-id cb))]
     (do
       (log/debug "Current Description:\n"
                  (util/pretty current-description))
@@ -365,10 +393,11 @@ TODO: Switch to that"
 (s/defn initiate-handshake :- optional-auth-dialog-description
   "TODO: ^:always-validate"
   [this :- ConnectionManager
+   request :- connection-request
    attempts :- s/Int
    timeout-ms :- s/Int]
   (let [receiver (async/chan)
-        responder {:respond receiver}
+        responder (assoc request :respond receiver)
         transmitter (:auth-request this)]
     (loop [remaining-attempts attempts]
       (when (< 0 remaining-attempts)
