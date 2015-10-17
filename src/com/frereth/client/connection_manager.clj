@@ -154,12 +154,11 @@ run on the Renderer."
             ;; If now is before the expiration date, we have not expired.
             ;; Which means this should return False
             (dt/before? now (dt/date-time expires))))]
-    (log/debug "Expiration check based on\n'"
-               (util/pretty ui-description)
-               "\nwith keys: " (keys ui-description)
+    (log/debug "Expiration check based on keys:\n"
+               (keys ui-description)
                "'\nexpires on: '"
-               expires "', a " (class expires)
-               ", the complement of expired? is: '"
+               expires
+               "', the complement of expired? is: '"
                inverted-result "'")
     (not inverted-result)))
 
@@ -173,7 +172,8 @@ run on the Renderer."
   ;; This is really the point to that
   (let [description-holder (:dialog-description this)]
     (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
-               description)
+               description
+               "\n(yes, this is just a baby step)")
     (reset! description-holder description)))
 
 (s/defn extract-renderer-pieces :- ui-description
@@ -270,8 +270,10 @@ run on the Renderer."
       (do
         (log/debug "The description we have now:\n" (util/pretty potential-description))
         (if (not (expired? potential-description))
-          (extract-renderer-pieces potential-description)  ; Last received version still good
-          (freshen-auth! this url world-id)))
+          (extract-renderer-pieces potential-description)  ; Last received version still goodd
+          (do
+            (log/debug "Requesting a new version, since that's expired")
+            (freshen-auth! this url world-id))))
       (do
         (log/debug "No current description. Requesting one")
         (freshen-auth! this url world-id)))
@@ -286,7 +288,9 @@ run on the Renderer."
            ;; Q: Why did I think that eliminating this would be a good idea?
            ;; A: Because this simply does not belong in here
            (reset! dialog-description new-description))
-  (async/>!! respond (assoc new-description :request-id request-id)))
+  (log/debug "Forwarding world description to " respond)
+  (async/>!! respond (assoc new-description :request-id request-id))
+  (log/debug "Description sent"))
 
 (s/defn send-wait!
   [{:keys [respond]}]
@@ -298,8 +302,9 @@ run on the Renderer."
   (log/debug "Incoming AUTH request to respond to:\n" cb)
   (if-let [current-description (unexpired-auth-description this (:url cb) (:request-id cb))]
     (do
-      (log/debug "Current Description:\n"
-                 (util/pretty current-description))
+      (comment
+        (log/debug "Current Description:\n"
+                   (util/pretty current-description)))
       (send-auth-descr-response! this cb current-description))
     (do
       (log/debug "No [unexpired] auth dialog description. Waiting...")
@@ -434,10 +439,9 @@ TODO: Switch to that"
                   (log/info "Request for AUTH dialog ACK'd. Waiting...")
                   (recur (dec remaining-attempts)))
                 (do
-                  (log/info "Asked transmitter to return reply on:\n " responder
-                            "\nResponse:" v)
+                  (log/info "Successfully asked transmitter to return reply on:\n " responder)
                   ;; It isn't obvious, but this is the happy path
-                  responder)))
+                  real-response)))
             (if (= c transmitter)
               (log/error "Auth channel closed")
               (do
@@ -448,16 +452,32 @@ TODO: Switch to that"
 (comment
   (require '[dev])
   ;; Try out the handshake
-  (if-let [responder
-           (initiate-handshake (:connection-manager dev/system) 5 2000)]
-    (let [[v c] (async/alts!! [(:respond responder) (async/timeout 500)])]
-      (if v
-        v
-        (log/error "Response failed:\n"
-                   (if (= c (:respond responder))
-                     "Handshaker closed the response channel. This is bad."
-                     "Timed out waiting for response. This isn't great"))))
-    (log/error "Failed to submit handshake request"))
+  ;; Really should be ignoring the URL completely.
+  ;; But I have a check in place for when I start trying
+  ;; to connect to anywhere else.
+  (let [request {:url {:protocol :tcp
+                       :port 7848
+                       :address "127.0.0.1"}
+                 :request-id "also ignored, really"}]
+    (if-let [responder
+             (initiate-handshake (:connection-manager dev/system) request 5 2000)]
+      (do
+        (comment (let [[v c] (async/alts!! [(:respond responder) (async/timeout 500)])]
+                   (if v
+                     v
+                     (log/error "Response failed:\n"
+                                (if (= c (:respond responder))
+                                  "Handshaker closed the response channel. This is bad."
+                                  ;; This is happening. But I'm very clearly
+                                  ;; sending the auth response just before we try to
+                                  ;; read it. Which means that something else must be
+                                  ;; pulling it from the channel first.
+                                  ;; Doesn't it?
+                                  (str "Timed out waiting for response on"
+                                       (:respond responder)
+                                       ". This isn't great"))))))
+        responder)
+      (log/error "Failed to submit handshake request")))
 
   ;; Check on status
   (let [response (async/chan)
