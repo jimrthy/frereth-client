@@ -97,8 +97,7 @@ login dialog with software updates.
 The 'scripting' part is really interesting. It's a microcosm of the
 entire architecture. Part of it should run on the client. The rest should
 run on the Renderer."
-  {:action-url mq/zmq-url
-   :character-encoding s/Keyword
+  {:character-encoding s/Keyword
    :expires Date
    ;; This is actually a byte array, but, for dev testing, I'm just using a UUID
    ;; TODO: Tighten this up once I have something resembling encryption
@@ -148,11 +147,12 @@ run on the Renderer."
 
 (s/defn expired? :- s/Bool
   [{:keys [expires] :as ui-description} :- optional-auth-dialog-description]
-  (let [result
-        ;; I'm losing expires
+  (let [inverted-result
         (when (and ui-description
                    expires)
           (let [now (dt/date-time)]
+            ;; If now is before the expiration date, we have not expired.
+            ;; Which means this should return False
             (dt/before? now (dt/date-time expires))))]
     (log/debug "Expiration check based on\n'"
                (util/pretty ui-description)
@@ -160,8 +160,8 @@ run on the Renderer."
                "'\nexpires on: '"
                expires "', a " (class expires)
                ", the complement of expired? is: '"
-               result "'")
-    result))
+               inverted-result "'")
+    (not inverted-result)))
 
 (s/defn configure-session!
   [this :- ConnectionManager
@@ -178,6 +178,10 @@ run on the Renderer."
 
 (s/defn extract-renderer-pieces :- ui-description
   [src :- auth-dialog-description]
+  ;; Note that, right now, we also have :character-encoding,
+  ;; :public-key, :expires, and :session-token
+  ;; Those are all pretty vital...though maybe the Renderer
+  ;; should cope w/ character-encoding
   (log/debug "Extracting :world from:\n" (str (keys src)))
   (:world src))
 
@@ -193,6 +197,13 @@ run on the Renderer."
   [this :- ConnectionManager
    {:keys [public-key static-url world]
     :as incoming-frame} :- auth-dialog-description
+   ;; Q: Do I want to save this based on the requested URL?
+   ;; A: Of course!
+   ;; TODO: get that into here.
+   ;; Honestly, it should just always stay paired w/ the request
+   ;; until we get to a layer that needs them split
+   ;; Then again, as written, this is hard-coded to a single
+   ;; server URL. So there's a bigger picture item to worry about
    request-id :- world-id]
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (when (public-key-matches? public-key request-id)
@@ -216,8 +227,7 @@ run on the Renderer."
       (catch ExceptionInfo ex
         (log/error ex "Incoming frame was bad")))))
 
-(s/defn unexpired-auth-description :- optional-auth-dialog-description
-  "If we're missing the description, or it's expired, try to read a more recent"
+(s/defn freshen-auth! :- optional-auth-dialog-description
   [this :- ConnectionManager
    {:keys [protocol address port] :as url}
    request-id :- world-id]
@@ -225,35 +235,46 @@ run on the Renderer."
                   (= port 7848)
                   (= address "127.0.0.1")))
     (raise {:not-implemented url}))
+  (let [auth-sock (:auth-sock this)]
+    ;; TODO: Need a background loop (would an EventPair be appropriate?)
+    ;; that updates :dialog-description as updates arrive
+    ;; Should not be accessing a raw socket here, under any circumstances
+    ;; When the server notifies us about a change, cope with that notification
+    ;; appropriately
+    (log/debug "Checking for updated AUTH description")
+    ;; It seems like a mistake to just leave this queued on the socket
+    ;; until we need it.
+    ;; But it was an easy first step
+    (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
+      ;; server sent because of a previous request
+      ;; Have I mentioned that this approach is wrong?
+      ;; i.e. this approach will fail the first time, which means it will need to
+      ;; be repeated to get here
+      ;; It made sense the first time around
+      (do
+        (log/debug "Calling pre-process")
+        (extract-renderer-pieces (pre-process-auth-dialog this description-frames request-id)))
+      (do
+        (log/debug "No fresh description available from server yet. Requesting...")
+        (request-auth-descr! auth-sock)
+        ;; trigger another request
+        nil))))
+
+(s/defn unexpired-auth-description :- optional-auth-dialog-description
+  "If we're missing the description, or it's expired, try to read a more recent"
+  [this :- ConnectionManager
+   url
+   request-id :- world-id]
   (if-let [dscr-atom (:dialog-description this)]
-    (let [potential-description (deref dscr-atom)]
-      (log/debug "The description we have now:\n" (util/pretty potential-description))
-      (if (not (expired? potential-description))
-        (extract-renderer-pieces potential-description)  ; Last received version still good
-        (let [auth-sock (:auth-sock this)]
-          ;; TODO: Need a background loop (would an EventPair be appropriate?)
-          ;; that updates :dialog-description as updates arrive
-          ;; Should not be accessing a raw socket here, under any circumstances
-          ;; When the server notifies us about a change, cope with that notification
-          ;; appropriately
-          (log/debug "Checking for updated AUTH description")
-          ;; It seems like a mistake to just leave this queued on the socket
-          ;; until we need it.
-          ;; But it was an easy first step
-          (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
-            ;; server sent because of a previous request
-            ;; Have I mentioned that this approach is wrong?
-            ;; i.e. this approach will fail the first time, which means it will need to
-            ;; be repeated to get here
-            ;; It made sense the first time around
-            (do
-              (log/debug "Calling pre-process with:\n" (util/pretty description-frames))
-              (extract-renderer-pieces (pre-process-auth-dialog this description-frames request-id)))
-            (do
-              (log/debug "No description available yet. Requesting...")
-              (request-auth-descr! auth-sock)
-              ;; trigger another request
-              nil)))))
+    (if-let [potential-description (deref dscr-atom)]
+      (do
+        (log/debug "The description we have now:\n" (util/pretty potential-description))
+        (if (not (expired? potential-description))
+          (extract-renderer-pieces potential-description)  ; Last received version still good
+          (freshen-auth! this url world-id)))
+      (do
+        (log/debug "No current description. Requesting one")
+        (freshen-auth! this url world-id)))
     (log/error "Missing atom for dialog description in " (keys this))))
 
 (s/defn send-auth-descr-response!
@@ -281,7 +302,7 @@ run on the Renderer."
                  (util/pretty current-description))
       (send-auth-descr-response! this cb current-description))
     (do
-      (log/debug "Currently no description. Waiting...")
+      (log/debug "No [unexpired] auth dialog description. Waiting...")
       (send-wait! cb))))
 
 (s/defn auth-loop-creator :- fr-skm/async-channel
@@ -305,6 +326,7 @@ TODO: Switch to that"
           ;; TODO: Really need a ribol manager in here to distinguish
           ;; between the "stop-iteration" signal and actual errors
           (let [[v c] (async/alts! (conj interesting-channels t-o))]
+            ;; Right here, we have :url, :request-id, and the response channel in :respond
             (log/debug "Incoming to AUTH loop:\n'"
                        v "' -- a " (class v)
                        "\non\n" c)
@@ -361,8 +383,9 @@ TODO: Switch to that"
       (if v
         (if (not= v :not-found)
           (do
-            (log/debug "Asked transmitter to return reply on:\n " responder
-                       "\nResponse:" v)
+            (log/debug "Incoming RPC request:\n " (dissoc responder :respond)
+                       "\n(hiding the core.async.channel)"
+                       "\nResult of send:" v)
             ;; It isn't obvious, but this is the happy path
             responder)
           (raise :not-found))
@@ -401,23 +424,27 @@ TODO: Switch to that"
         transmitter (:auth-request this)]
     (loop [remaining-attempts attempts]
       (when (< 0 remaining-attempts)
+        (log/debug "Top of handshake loop. Remaining attempts:" remaining-attempts)
         (let [[v c] (async/alts!! [[transmitter responder] (async/timeout timeout-ms)])]
-          (if v
-            (if (= v :hold-please)
-              (do
-                (log/info "Request for AUTH dialog ACK'd. Waiting...")
-                (recur (dec remaining-attempts)))
-              (do
-                (log/debug "Asked transmitter to return reply on:\n " responder
-                           "\nResponse:" v)
-                ;; It isn't obvious, but this is the happy path
-                responder))
+          (if v  ; did the submission succeed?
+            ;; TODO: decrement the timeout by however many we spent waiting for submission
+            (let [[real-response c] (async/alts!! [receiver (async/timeout timeout-ms)])]
+              (if (= real-response :hold-please)
+                (do
+                  (log/info "Request for AUTH dialog ACK'd. Waiting...")
+                  (recur (dec remaining-attempts)))
+                (do
+                  (log/info "Asked transmitter to return reply on:\n " responder
+                            "\nResponse:" v)
+                  ;; It isn't obvious, but this is the happy path
+                  responder)))
             (if (= c transmitter)
               (log/error "Auth channel closed")
               (do
                 (log/warn "Timed out trying to transmit request for AUTH dialog.\n"
                           (dec remaining-attempts) " attempts remaining")
                 (recur (dec remaining-attempts))))))))))
+
 (comment
   (require '[dev])
   ;; Try out the handshake
