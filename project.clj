@@ -5,7 +5,7 @@
                  [com.postspectacular/rotor "0.1.0"]
                  #_[org.clojure/java.classpath "0.2.2"]
                  [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
-                 [org.clojure/tools.nrepl "0.2.10"]]
+                 [org.clojure/tools.nrepl "0.2.11"]]
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))]
   :license {:name "Eclipse Public License"
             :url "http://http://www.eclipse.org/legal/epl-v10.html"}
