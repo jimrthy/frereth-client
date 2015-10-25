@@ -36,8 +36,20 @@ with those.
     [auth-loop :- fr-skm/async-channel
      auth-request :- fr-skm/async-channel
      auth-sock :- mq/Socket
+     ;; This made sense for connecting to a single
+     ;; server. That really isn't what we're doing
+     ;; Except that it really still is...
+     ;; otherwise we'd need multiple auth-socks
+     ;; as well
      dialog-description :- fr-skm/atom-type
-     status-check :- fr-skm/async-channel]
+     status-check :- fr-skm/async-channel
+     ;; A map of world-ids to everything we
+     ;; need to know to make the connection.
+     ;; Such as the auth-sock and dialog-description
+     ;; TODO: Start using this instead
+     ;; Alternatively, it might make sense to just
+     ;; have multiple connection managers
+     worlds :- fr-skm/atom-type]
   component/Lifecycle
   (start
    [this]
@@ -46,6 +58,7 @@ with those.
          status-check (or status-check (async/chan))
          dialog-description (or dialog-description
                                 (atom nil))
+         worlds (or worlds (atom {}))
          almost (assoc this
                        :auth-request auth-request
                        :dialog-description dialog-description
@@ -380,23 +393,33 @@ TODO: Switch to that"
     method :- s/Keyword
     data :- s/Any
     timeout-ms :- s/Int]
-   ;; TODO: Refactor initiate-handshake to use this?
-  (let [receiver (async/chan)
-        responder {:respond receiver}
-        transmitter (-> this :worlds deref (get world-id))]
-    (let [[v c] (async/alts!! [[transmitter responder] (async/timeout timeout-ms)])]
-      (if v
-        (if (not= v :not-found)
-          (do
-            (log/debug "Incoming RPC request:\n " (dissoc responder :respond)
-                       "\n(hiding the core.async.channel)"
-                       "\nResult of send:" v)
-            ;; It isn't obvious, but this is the happy path
-            responder)
-          (raise :not-found))
-        (if (= c transmitter)
-          (log/error "channel to transmitter for world" world-id " closed")
-          (raise :timeout {}))))))
+   ;; At this point, we've really moved beyond the original scope of this
+   ;; namespace.
+   ;; It's getting into real client-server interaction.
+   ;; Even if, at this level, it's still just
+   ;; trying to set up auth.
+   ;; That just happens to be the auth world's entire purpose
+   ;; TODO: This needs more thought
+   (comment (raise {:obsolete "Not yet...but soon"}))
+   (log/debug "Top of RPC:" method)
+   (let [receiver (async/chan)
+         responder {:respond receiver}
+         ;; This causes a NPE, because there is no :worlds atom to deref
+         transmitter (-> this :worlds deref (get world-id) :transmitter)
+         [v c] (async/alts!! [[transmitter responder] (async/timeout timeout-ms)])]
+     (log/debug "Submitting RPC" method "returned" (util/pretty v))
+     (if v
+       (if (not= v :not-found)
+         (do
+           (log/debug "Incoming RPC request:\n " (dissoc responder :respond)
+                      "\n(hiding the core.async.channel)"
+                      "\nResult of send:" v)
+           ;; It isn't obvious, but this is the happy path
+           responder)
+         (raise :not-found))
+       (if (= c transmitter)
+         (log/error "channel to transmitter for world" world-id " closed")
+         (raise :timeout {})))))
   ([this :- ConnectionManager
     world-id
     method :- s/Keyword
@@ -410,12 +433,24 @@ TODO: Switch to that"
     method :- s/Keyword
     data :- s/Any
     timeout :- s/Int]
-   (let [responder (rpc this world-id method data timeout)]
-     (async/alts!! [responder (async/timeout timeout)])))
+   (log/debug "Synchronous RPC:\n(" method data ")")
+   (let [responder (rpc this world-id method data timeout)
+         [result ch] (async/alts!! [responder (async/timeout timeout)])]
+     (log/debug "RPC returned:" (pr-str result))
+     (when-not result
+       (if (= result responder)
+         (do
+           (log/error "Responder channel unexpectedly closed by other side. This is bad")
+           (raise {:unexpected-failure "What could have happened?"}))
+         (do
+           (log/error "Timed out waiting for a response")
+           (raise :timeout))))
+     (log/debug "rpc-sync returning:" result)
+     result))
   ([this :- ConnectionManager
-     world-id
-     method :- s/Keyword
-     data :- s/Any]
+    world-id
+    method :- s/Keyword
+    data :- s/Any]
    (rpc-sync this world-id method data (* 5 (util/seconds)))))
 
 (s/defn initiate-handshake :- optional-auth-dialog-description
