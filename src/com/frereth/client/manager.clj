@@ -33,9 +33,18 @@ credentials/session expiration"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
+;; TODO: Move this into common
+;; Note that, currently, it's copy/pasted into web's frereth.globals.cljs
+;; And it doesn't work
+;; Q: What's the issue? (aside from the fact that it's experimental)
+;; TODO: Ask on the mailing list
+;; More important TODO: Refactor/rename this to world-identifier
+;; Or maybe world-id-type
+(def world-id (s/cond-pre s/Keyword s/Str s/Uuid))
+
 (def remote-map
   "Yes, this is really pretty meaningless, except possibly for documentation"
-  (class (atom {s/Str EventPair})))
+  (class (atom {world-id EventPair})))
 
 (def socket-session
   "Each connected socket has its own AUTH token, issued by the server

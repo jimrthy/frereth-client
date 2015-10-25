@@ -15,6 +15,7 @@ with those.
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.edn :as edn]
+            [com.frereth.client.manager :as manager]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.schema :as fr-skm]
             [com.frereth.common.util :as util]
@@ -25,68 +26,11 @@ with those.
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
-           [com.frereth.common.zmq_socket SocketDescription]
+           [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
            [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
-
-(declare auth-loop-creator)
-(s/defrecord ConnectionManager
-    [auth-loop :- fr-skm/async-channel
-     auth-request :- fr-skm/async-channel
-     auth-sock :- mq/Socket
-     ;; This made sense for connecting to a single
-     ;; server. That really isn't what we're doing
-     ;; Except that it really still is...
-     ;; otherwise we'd need multiple auth-socks
-     ;; as well
-     dialog-description :- fr-skm/atom-type
-     status-check :- fr-skm/async-channel
-     ;; A map of world-ids to everything we
-     ;; need to know to make the connection.
-     ;; Such as the auth-sock and dialog-description
-     ;; TODO: Start using this instead
-     ;; Alternatively, it might make sense to just
-     ;; have multiple connection managers
-     worlds :- fr-skm/atom-type]
-  component/Lifecycle
-  (start
-   [this]
-   ;; Create pieces that weren't supplied externally
-   (let [auth-request (or auth-request (async/chan))
-         status-check (or status-check (async/chan))
-         dialog-description (or dialog-description
-                                (atom nil))
-         worlds (or worlds (atom {}))
-         almost (assoc this
-                       :auth-request auth-request
-                       :dialog-description dialog-description
-                       :status-check status-check)
-         auth-loop (auth-loop-creator almost)]
-     (assoc almost :auth-loop auth-loop)))
-  (stop
-   [this]
-   (when auth-request
-     (async/close! auth-request))
-   (when status-check
-     (async/close! status-check))
-   (when auth-loop
-     (let [[v c] (async/alts!! [auth-loop (async/timeout 1500)])]
-       (when (not= c auth-loop)
-         (log/error "Timed out waiting for AUTH loop to exit"))))
-   (assoc this
-          :auth-request nil
-          :auth-loop nil
-          :dialog-description (atom nil)
-          :status-check nil)))
-
-;; TODO: Move this into common
-;; Note that, currently, it's copy/pasted into web's frereth.globals.cljs
-;; And it doesn't work
-;; Q: What's the issue? (aside from the fact that it's experimental)
-;; TODO: Ask on the mailing list
-(def world-id (s/cond-pre s/Keyword s/Str s/Uuid))
 
 (def ui-description
   "TODO: This (and the pieces that build upon it) really belong in common.
@@ -95,14 +39,17 @@ And it needs to be fleshed out much more thoroughly.
 This is the part that flows down to the Renderer"
   {:data {:type s/Keyword
           :version s/Any
-          :name s/Any ;world-id
+          :name s/Any ; manager/world-id
           :body s/Any
           (s/optional-key :script) [s/Any]
           (s/optional-key :css) [s/Any]}})
 
 (def base-auth-dialog-description
-  "This is pretty much a half-baked idea.
-  Should really be downloading a template of HTML/javascript for doing
+  "TODO: Come up with a better name. auth usually won't be involved, really.
+
+This is pretty much a half-baked idea.
+
+Should really be downloading a template of HTML/javascript for doing
 the login. e.g. a URL for an OAUTH endpoint (or however those work).
 The 'expires' is really just for the sake of transitioning to a newer
 login dialog with software updates.
@@ -128,6 +75,66 @@ run on the Renderer."
    :world auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
+(def individual-auth-connection {:auth-sock mq/Socket  ; note that this has the URL
+                                 ;; TODO: Refactor this to plain ol' :description
+                                 :dialog-description optional-auth-dialog-description})
+
+(def auth-connections {manager/world-id individual-auth-connection})
+
+(declare auth-loop-creator establish-connection release-world!)
+(s/defrecord ConnectionManager
+    [auth-loop :- fr-skm/async-channel
+     auth-request :- fr-skm/async-channel
+     local-auth-url :- mq/zmq-url
+     message-context :- ContextWrapper
+     status-check :- fr-skm/async-channel
+     ;; A map of world-ids to auth-connections
+     ;; It might make more sense to have multiple ConnectionManager
+     ;; instances, each with a single world.
+     ;; Alternatively, stick this inside the atom so
+     ;; we don't have to worry about state: worlds
+     ;; is just a map of values.
+     ;; That approach is much more tempting, but
+     ;; this entire thing is inherently stateful.
+     ;; So run with this approach for now
+     worlds :- fr-skm/atom-type]
+  component/Lifecycle
+  (start
+   [this]
+   ;; Create pieces that weren't supplied externally
+   (let [auth-request (or auth-request (async/chan))
+         status-check (or status-check (async/chan))
+         worlds (or worlds (atom {:local (establish-connection message-context local-auth-url)}))
+         almost (assoc this
+                       :auth-request auth-request
+                       :status-check status-check)
+         auth-loop (auth-loop-creator almost)]
+     (assoc almost :auth-loop auth-loop)))
+  (stop
+   [this]
+   (when worlds
+     (let [actual-worlds @worlds]
+       ;; TODO: Hang on to the individual world description
+       ;; Seems like it would make reconnecting
+       ;; or session restoration easier
+       ;; Then again, that's really a higher-level scope.
+       ;; And it's YAGNI
+       (doseq [world (vals actual-worlds)]
+         (release-world! world))))
+   (when auth-request
+     (async/close! auth-request))
+   (when status-check
+     (async/close! status-check))
+   (when auth-loop
+     (let [[v c] (async/alts!! [auth-loop (async/timeout 1500)])]
+       (when (not= c auth-loop)
+         (log/error "Timed out waiting for AUTH loop to exit"))))
+   (assoc this
+          :auth-request nil
+          :auth-loop nil
+          :status-check nil
+          :worlds nil)))
+
 (def callback-channel
   "Where do I send responses back to?"
   {:respond fr-skm/async-channel})
@@ -136,7 +143,7 @@ run on the Renderer."
   {;; the url structure is already defined elsewhere
    ;; TODO: Track it down
    :url s/Any
-   :request-id world-id})
+   :request-id manager/world-id})
 
 (def connection-callback (into connection-request callback-channel))
 
@@ -200,7 +207,7 @@ run on the Renderer."
 
 (s/defn public-key-matches? :- s/Bool
   [public-key :- s/Uuid
-   request-id :- world-id]
+   request-id :- manager/world-id]
   ;; Really just a placeholder
   ;; TODO: implement
   true)
@@ -217,7 +224,7 @@ run on the Renderer."
    ;; until we get to a layer that needs them split
    ;; Then again, as written, this is hard-coded to a single
    ;; server URL. So there's a bigger picture item to worry about
-   request-id :- world-id]
+   request-id :- manager/world-id]
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (when (public-key-matches? public-key request-id)
     (try
@@ -241,56 +248,57 @@ run on the Renderer."
         (log/error ex "Incoming frame was bad")))))
 
 (s/defn freshen-auth! :- optional-auth-dialog-description
-  [this :- ConnectionManager
+  [auth-sock :- SocketDescription
    {:keys [protocol address port] :as url}
-   request-id :- world-id]
-  (when (not (and (= protocol :tcp)
-                  (= port 7848)
-                  (= address "127.0.0.1")))
-    (raise {:not-implemented url}))
-  (let [auth-sock (:auth-sock this)]
-    ;; TODO: Need a background loop (would an EventPair be appropriate?)
-    ;; that updates :dialog-description as updates arrive
-    ;; Should not be accessing a raw socket here, under any circumstances
-    ;; When the server notifies us about a change, cope with that notification
-    ;; appropriately
-    (log/debug "Checking for updated AUTH description")
-    ;; It seems like a mistake to just leave this queued on the socket
-    ;; until we need it.
-    ;; But it was an easy first step
-    (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
-      ;; server sent because of a previous request
-      ;; Have I mentioned that this approach is wrong?
-      ;; i.e. this approach will fail the first time, which means it will need to
-      ;; be repeated to get here
-      ;; It made sense the first time around
-      (do
-        (log/debug "Calling pre-process")
-        (extract-renderer-pieces (pre-process-auth-dialog this description-frames request-id)))
-      (do
-        (log/debug "No fresh description available from server yet. Requesting...")
-        (request-auth-descr! auth-sock)
-        ;; trigger another request
-        nil))))
+   request-id :- manager/world-id]
+  ;; TODO: Need a background loop (would an EventPair be appropriate?)
+  ;; that updates :dialog-description as updates arrive
+  ;; Should not be accessing a raw socket here, under any circumstances
+  ;; When the server notifies us about a change, cope with that notification
+  ;; appropriately
+
+  (log/debug "Checking for updated AUTH description")
+
+  ;; It seems like a mistake to just leave this queued on the socket
+  ;; until we need it.
+  ;; But it was an easy first step
+  (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
+    ;; server sent because of a previous request
+    ;; Have I mentioned that this approach is wrong?
+    ;; i.e. this approach will fail the first time, which means it will need to
+    ;; be repeated to get here
+    ;; It made sense for a first implementation
+    (do
+      (log/warn "Really need to set up a CommunicationsLoopManager")
+      ;; Or maybe that should just happen the first time we establish a connection.
+      ;; Reloading an expired login dialog really isn't the sort of thing to be trying to
+      ;; handle here.
+      ;; There's a part of me that thinks the initial connection to localhost deserves
+      ;; special treatment. Generally, I think that part's wrong.
+      (raise :start-here)
+      description-frames)
+    (do
+      (log/debug "No fresh description available from server yet. Requesting...")
+      (request-auth-descr! auth-sock)
+      ;; trigger another request
+      nil)))
 
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   "If we're missing the description, or it's expired, try to read a more recent"
   [this :- ConnectionManager
-   url
-   request-id :- world-id]
-  (if-let [dscr-atom (:dialog-description this)]
-    (if-let [potential-description (deref dscr-atom)]
-      (do
-        (log/debug "The description we have now:\n" (util/pretty potential-description))
-        (if (not (expired? potential-description))
-          (extract-renderer-pieces potential-description)  ; Last received version still goodd
-          (do
-            (log/debug "Requesting a new version, since that's expired")
-            (freshen-auth! this url world-id))))
-      (do
-        (log/debug "No current description. Requesting one")
-        (freshen-auth! this url world-id)))
-    (log/error "Missing atom for dialog description in " (keys this))))
+   url :- mq/zmq-url
+   world-id :- manager/world-id]
+  (if-let [potential-description (-> this :worlds deref (get world-id) :dialog-description)]
+    (do
+      (log/debug "The description we have now:\n" (util/pretty potential-description))
+      (if (not (expired? potential-description))
+        (extract-renderer-pieces potential-description)  ; Last received version still good
+        (do
+          (log/debug "Requesting a new version, since that's expired")
+          (freshen-auth! this url world-id))))
+    (do
+      (log/debug "No current description. Requesting one")
+      (freshen-auth! this url world-id))))
 
 (s/defn send-auth-descr-response!
   [{:keys [dialog-description] :as this}
@@ -313,8 +321,13 @@ run on the Renderer."
   [this :- ConnectionManager
    cb :- connection-callback]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
-  (if-let [current-description (unexpired-auth-description this (:url cb) (:request-id cb))]
-    (do
+  (if-let [raw-description (unexpired-auth-description
+                            this
+                            (:url cb)
+                            (:request-id cb))]
+    (let [current-description #_(raise {:start-here
+                                      "Need to pre-process and prep for renderer"})
+          (-> raw-description pre-process-auth-dialog extract-renderer-pieces)]
       (comment
         (log/debug "Current Description:\n"
                    (util/pretty current-description)))
@@ -322,6 +335,23 @@ run on the Renderer."
     (do
       (log/debug "No [unexpired] auth dialog description. Waiting...")
       (send-wait! cb))))
+
+(s/defn establish-connection :- individual-auth-connection
+  [world-id :- manager/world-id
+   ctx :- ContextWrapper
+   url :- mq/zmq-url]
+  (let [dead-sock (zmq-socket/ctor {:ctx ctx
+                                    :url url
+                                    :sock-type :dealer
+                                    :direction :connect})
+        sock (component/start dead-sock)]
+    ;; Q: Can this possibly work?
+    ;; A: Probably not...but maybe
+    (freshen-auth! sock url world-id)))
+
+(s/defn release-world! :- individual-auth-connection
+  [world :- individual-auth-connection]
+  (assoc world :auth-sock (component/stop (:auth-sock world))))
 
 (s/defn auth-loop-creator :- fr-skm/async-channel
   "Set up the auth loop
@@ -387,9 +417,7 @@ TODO: Switch to that"
 (s/defn rpc :- (s/maybe fr-skm/async-channel)
   "For plain-ol' asynchronous request/response exchanges"
   ([this :- ConnectionManager
-    ;; Schema for this is in web's global.cljs
-    ;; TODO: Move it into a .cljc in common
-    world-id
+    world-id :- manager/world-id
     method :- s/Keyword
     data :- s/Any
     timeout-ms :- s/Int]
@@ -400,7 +428,7 @@ TODO: Switch to that"
    ;; trying to set up auth.
    ;; That just happens to be the auth world's entire purpose
    ;; TODO: This needs more thought
-   (comment (raise {:obsolete "Not yet...but soon"}))
+   (raise {:move-this "Unless there's already a better implementation in manager ns"})
    (log/debug "Top of RPC:" method)
    (let [receiver (async/chan)
          responder {:respond receiver}
@@ -421,20 +449,20 @@ TODO: Switch to that"
          (log/error "channel to transmitter for world" world-id " closed")
          (raise :timeout {})))))
   ([this :- ConnectionManager
-    world-id
+    request-id :- manager/world-id
     method :- s/Keyword
     data :- s/Any]
-   (rpc this world-id method data (* 5 util/seconds))))
+   (rpc this request-id method data (* 5 util/seconds))))
 
 (s/defn rpc-sync
   "True synchronous Request/Reply"
   ([this :- ConnectionManager
-    world-id
+    request-id :- manager/world-id
     method :- s/Keyword
     data :- s/Any
     timeout :- s/Int]
    (log/debug "Synchronous RPC:\n(" method data ")")
-   (let [responder (rpc this world-id method data timeout)
+   (let [responder (rpc this request-id method data timeout)
          [result ch] (async/alts!! [responder (async/timeout timeout)])]
      (log/debug "RPC returned:" (pr-str result))
      (when-not result
@@ -448,10 +476,10 @@ TODO: Switch to that"
      (log/debug "rpc-sync returning:" result)
      result))
   ([this :- ConnectionManager
-    world-id
+    request-id :- manager/world-id
     method :- s/Keyword
     data :- s/Any]
-   (rpc-sync this world-id method data (* 5 (util/seconds)))))
+   (rpc-sync this request-id method data (* 5 (util/seconds)))))
 
 (s/defn initiate-handshake :- optional-auth-dialog-description
   "TODO: ^:always-validate"
