@@ -83,7 +83,9 @@ run on the Renderer."
 
 (declare auth-loop-creator establish-connection release-world!)
 (s/defrecord ConnectionManager
-    [auth-loop :- fr-skm/async-channel
+    [;; Really needs to be a map
+     ;; Maybe of URLs to the go loops?
+     auth-loop :- fr-skm/async-channel
      auth-request :- fr-skm/async-channel
      local-auth-url :- mq/zmq-url
      message-context :- ContextWrapper
@@ -104,11 +106,11 @@ run on the Renderer."
    ;; Create pieces that weren't supplied externally
    (let [auth-request (or auth-request (async/chan))
          status-check (or status-check (async/chan))
-         worlds (or worlds (atom {:local (establish-connection message-context local-auth-url)}))
+         worlds (or worlds (atom {:local (establish-connection :local message-context local-auth-url)}))
          almost (assoc this
                        :auth-request auth-request
                        :status-check status-check)
-         auth-loop (auth-loop-creator almost)]
+         auth-loop (auth-loop-creator almost local-auth-url)]
      (assoc almost :auth-loop auth-loop)))
   (stop
    [this]
@@ -358,9 +360,13 @@ run on the Renderer."
 This is just an async-zmq/EventPair.
 Actually, this is just an async/pipeline-async transducer.
 TODO: Switch to that"
-  [{:keys [auth-request auth-sock status-check]
-    :as this} :- ConnectionManager]
-  (let [minutes-5 (partial async/timeout (* 5 (util/minute)))
+  [{:keys [auth-request message-context status-check]
+    :as this} :- ConnectionManager
+    auth-url :- mq/zmq-url]
+  (let [url-string (mq/connection-string auth-url)
+        ctx (:ctx message-context)
+        auth-sock (mq/connected-socket! ctx :dealer url-string)
+        minutes-5 (partial async/timeout (* 5 (util/minute)))
         done (promise)
         interesting-channels [auth-request status-check]]
     ;; It seems almost wasteful to start this before there's any
@@ -555,5 +561,5 @@ TODO: Switch to that"
 )
 
 (s/defn ctor :- ConnectionManager
-  [{:keys [url]}]
-  (map->ConnectionManager {:url url}))
+  [{:keys [local-auth-url]}]
+  (map->ConnectionManager {:local-auth-url local-auth-url}))

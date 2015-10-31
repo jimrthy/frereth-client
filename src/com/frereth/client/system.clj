@@ -25,7 +25,7 @@
 (s/defn init :- SystemMap
   [{:keys [ctx-thread-count
            local-auth-url]
-    :or {ctx-thread-count (-> (util/core-count) dec)
+    :or {ctx-thread-count (-> (util/core-count) dec (max 1))
          ;; Q: What do I want to do about connecting to external servers?
          ;; Do each of those requests need their own ConnectionManager?
          ;; It seems like a waste for them to bounce through the local
@@ -35,6 +35,8 @@
                          :port (cfg/auth-port)}}
     :as overrides}]
   (set! *warn-on-reflection* true)
+
+  (assert local-auth-url)
 
   (let [struct '{;; We really need multiple instances of this, one per connected world
                  ;; It's owned by the connection manager
@@ -46,12 +48,8 @@
                  ;; handle these
                  ;; :message-loop-manager com.frereth.client.manager/ctor
                  }
-        depends {; :auth-sock [:ctx]
-                 ;; Note that the message-loop-manager does not depend
-                 ;; on the connection-manager, though it really seems like
-                 ;; it should
-                 :connection-manager {:message-context :ctx}}
-        descr {:structure struct
-               :dependencies depends}]
-    (cpt-dsl/build descr
-                   {:connection-manager {:url local-auth-url}})))
+        depends {:connection-manager {:message-context :ctx}}]
+    (cpt-dsl/build {:structure struct
+                    :dependencies depends}
+                   {:connection-manager {:local-auth-url local-auth-url}
+                    :ctx {:thread-count ctx-thread-count}})))
