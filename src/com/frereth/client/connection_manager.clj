@@ -12,7 +12,8 @@ to new worlds (which will frequently be on the same server)
 and forward back through here when a player decides to connect
 with those.
 "
-  (:require [cljeromq.core :as mq]
+  (:require [cljeromq.constants :as mq-k]
+            [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.edn :as edn]
             [com.frereth.client.manager :as manager]
@@ -152,6 +153,12 @@ run on the Renderer."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internal
 
+(s/defn current-session-key
+  "Note that, as-is, this is useless.
+Really need some sort of SESSION token"
+  []
+  (util/random-uuid))
+
 (s/defn request-auth-descr!
   "Signal the server that we want to get in touch"
   [auth-sock :- SocketDescription]
@@ -163,8 +170,8 @@ run on the Renderer."
              ;; Tie this socket to its SESSION: first step toward allowing
              ;; secure server side socket to even think about having a
              ;; conversation
-             :public-key (util/random-uuid)}
-        serialized (-> msg pr-str .getBytes vector)]
+             :public-key (current-session-key)}
+        serialized #_(-> msg pr-str .getBytes vector) (pr-str msg)]
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
 (s/defn expired? :- s/Bool
@@ -264,26 +271,32 @@ run on the Renderer."
   ;; It seems like a mistake to just leave this queued on the socket
   ;; until we need it.
   ;; But it was an easy first step
-  (if-let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
-    ;; server sent because of a previous request
-    ;; Have I mentioned that this approach is wrong?
-    ;; i.e. this approach will fail the first time, which means it will need to
-    ;; be repeated to get here
-    ;; It made sense for a first implementation
-    (do
-      (log/warn "Really need to set up a CommunicationsLoopManager")
-      ;; Or maybe that should just happen the first time we establish a connection.
-      ;; Reloading an expired login dialog really isn't the sort of thing to be trying to
-      ;; handle here.
-      ;; There's a part of me that thinks the initial connection to localhost deserves
-      ;; special treatment. Generally, I think that part's wrong.
-      (raise :start-here)
-      description-frames)
-    (do
-      (log/debug "No fresh description available from server yet. Requesting...")
-      (request-auth-descr! auth-sock)
-      ;; trigger another request
-      nil)))
+  (try
+    (let [description-frames (com-comm/dealer-recv! (:socket auth-sock))]
+      ;; server sent because of a previous request
+      ;; Have I mentioned that this approach is wrong?
+      ;; i.e. this approach will fail the first time, which means it will need to
+      ;; be repeated to get here
+      ;; It made sense for a first implementation
+      (do
+        (log/warn "Really need to set up a CommunicationsLoopManager")
+        ;; Or maybe that should just happen the first time we establish a connection.
+        ;; Reloading an expired login dialog really isn't the sort of thing to be trying to
+        ;; handle here.
+        ;; There's a part of me that thinks the initial connection to localhost deserves
+        ;; special treatment. Generally, I think that part's wrong.
+        (raise :start-here)
+        description-frames))
+    (catch ExceptionInfo ex
+      (if-let [errno (:error-number (.getData ex))]
+        (if (= errno (mq-k/error->const :again))
+          (do
+            (log/debug "No fresh description available from server yet. Requesting...")
+            (request-auth-descr! auth-sock)
+            ;; trigger another request
+            nil)
+          (throw ex))
+        (throw ex)))))
 
 (s/defn unexpired-auth-description :- optional-auth-dialog-description
   "If we're missing the description, or it's expired, try to read a more recent"
@@ -355,7 +368,25 @@ run on the Renderer."
     ;; TODO: Need better error handling
     (try
       (freshen-auth! sock url world-id)
+      (catch ExceptionInfo ex
+        (let [details (.getData ex)]
+          (if-let [errno (:error-number details)]
+            (let [eagain (mq-k/error->const :again)]
+              (if (= errno eagain)
+                (log/info "No instractions auth available from server. Have we requested any?")
+                (throw ex)))
+            (throw ex))))
       (catch RuntimeException ex
+        ;; TODO: Be smarter about this.
+        ;; Honestly, we need to propagate a message to
+        ;; the piece that tried to start this so it can retry.
+        ;; That seems like a poor approach, which means I probably
+        ;; need to rethink the wisdom of this stack.
+        ;; Yet again.
+
+        ;; N.B. Also: the error contents make a big difference here.
+        ;; EAGAIN is one thing.
+        ;; Other errors are less benign
         (let [msg (str "Client failed to refresh auth requirements from server\n"
                        "Q: Is the server up and running?")]
           (throw (ex-info msg {:internal ex})))))))
