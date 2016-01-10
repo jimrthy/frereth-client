@@ -349,7 +349,16 @@ run on the Renderer."
         sock (component/start dead-sock)]
     ;; Q: Can this possibly work?
     ;; A: Probably not...but maybe
-    (freshen-auth! sock url world-id)))
+    ;; N.B. As-is, this will throw an AssertionError if
+    ;; anything goes wrong.
+    ;; e.g. There's no server listening.
+    ;; TODO: Need better error handling
+    (try
+      (freshen-auth! sock url world-id)
+      (catch RuntimeException ex
+        (let [msg (str "Client failed to refresh auth requirements from server\n"
+                       "Q: Is the server up and running?")]
+          (throw (ex-info msg {:internal ex})))))))
 
 (s/defn release-world! :- individual-auth-connection
   [world :- individual-auth-connection]
