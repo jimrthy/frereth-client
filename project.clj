@@ -6,7 +6,9 @@
                  #_[org.clojure/java.classpath "0.2.2"]
                  [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
                  [org.clojure/tools.nrepl "0.2.12"]]
-  :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))]
+
+  :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))
+             "-Djava.awt.headless=true"]
   :license {:name "Eclipse Public License"
             :url "http://http://www.eclipse.org/legal/epl-v10.html"}
   ;:main com.frereth.client.core
@@ -14,11 +16,14 @@
   ;; TODO: Look @ https://github.com/clojure-emacs/cider-nrepl
   ;; It has instructions for adding this as a dependency,
   ;; along with the specific middleware to repl-options
-  :plugins [[cider/cider-nrepl "0.10.0" :exclusions [org.clojure/java.classpath]]]
+  ;; Q: Why is this in here? It seems pretty profiles-specific.
+  ;; Or was I thinking about using this from the server angle?
+  :plugins [[cider/cider-nrepl "0.12.0" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
-                   :dependencies [[clj-ns-browser "1.3.1" :exclusions [clojure-complete org.clojure/clojure]]
-                                  [com.cemerick/pomegranate "0.3.0"  :exclusions [org.clojure/clojure
+                   :dependencies [;; TODO: Should probably go away
+                                  [clj-ns-browser "1.3.1" :exclusions [clojure-complete org.clojure/clojure]]
+                                  [com.cemerick/pomegranate "0.3.1"  :exclusions [org.clojure/clojure
                                                                                   org.codehaus.plexus/plexus-utils]]
                                   [org.clojure/tools.namespace "0.2.10"]]
                    :global-vars {*warn-on-reflection* true}}}
