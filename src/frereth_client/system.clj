@@ -3,12 +3,10 @@
             ;; Q: Debug only??
             [clojure.tools.trace :as trace]
             [com.stuartsierra.component :as component]
-            [frereth-client
-             [communicator :as comm]
-             [config :as config]
-             [renderer :as render]
-             [repl :as repl]
-             #_[server :as server]]
+            [frereth-client.config :as config]
+            [frereth-client.communicator :as comm]
+            [frereth-client.renderer :as render]
+            [frereth-client.repl :as repl]
             [taoensso.timbre :as log]))
 
 (defn init
@@ -35,7 +33,3 @@
                    :context :zmq-context
                    :url :server-url}
           :zmq-context [:config]}))))
-
-
-
-

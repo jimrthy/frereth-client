@@ -20,7 +20,7 @@
 (s/defrecord ZmqContext [context :- ZMQ$Context
                           thread-count :- s/Int]
   component/Lifecycle
-  (start 
+  (start
    [this]
    (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
                   (class thread-count) ") threads")]
@@ -115,34 +115,7 @@
          (when port
            (str ":" port)))))
 
-(comment (defrecord Communicator [command-channel
-                                  context
-                                  external-server-sockets
-                                  local-server
-                                  local-server-url
-                                  renderer-socket]
-           component/Lifecycle
 
-           (start
-             [this]
-             (let [ctx (mq/context)]
-               (into this {:context ctx
-                           :external-server-sockets (atom {})
-                           :local-server (build-local-server-connection ctx local-server-url)
-                           :renderer-socket (build-renderer-binding ctx)})))
-
-           (stop
-             [this]
-             ;; Q: Do these need to be disconnected first?
-             ;; They can't be bound, since the other side can't possibly know about them
-             (map mq/close! @external-server-sockets)
-             (destroy-renderer-binding renderer-socket)
-             (destroy-connection! local-server local-server-url)
-             (mq/terminate! context)
-             (into this {:context nil
-                         :external-server-sockets nil
-                         :local-server nil
-                         :renderer-socket nil}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
