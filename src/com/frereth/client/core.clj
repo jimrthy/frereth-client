@@ -1,10 +1,9 @@
-(ns frereth-client.core
+(ns com.frereth.client.core
   (:require [com.stuartsierra.component :as component]
-            [frereth-client.system :as system])
-  (:gen-class))
+            [com.frereth.client.system :as system]))
 
 (defn -main
-  "I don't do a whole lot ... yet."
+  "Run the client-system as a stand-alone until it signals completion"
   [& args]
   (let [pre-universe (system/init)]
     (let [universe (component/start pre-universe)]

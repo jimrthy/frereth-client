@@ -1,15 +1,15 @@
-(ns frereth-client.communicator
-  (:require [clojure.core.async :as async]
+(ns com.frereth.client.communicator
+  (:require [cljeromq.core :as mq]
+            [clojure.core.async :as async]
             [clojure.tools.logging :as log]
+            [com.frereth.client.config :as config]
             [com.stuartsierra.component :as component]
-            [frereth-client.config :as config]
             [plumbing.core :as plumbing]
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as timbre]
-            [zeromq.zmq :as zmq])
-  (:import [org.zeromq ZMQ$Context ZMQException])
-  (:gen-class))
+            #_[zeromq.zmq :as zmq])
+  (:import [clojure.lang ExceptionInfo]))
 
 ;;;; Can I handle all of the networking code in here?
 ;;;; Well, obviously I could. Do I want to?
@@ -17,7 +17,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(s/defrecord ZmqContext [context :- ZMQ$Context
+(s/defrecord ZmqContext [context :- mq/Context
                           thread-count :- s/Int]
   component/Lifecycle
   (start
@@ -25,17 +25,18 @@
    (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
                   (class thread-count) ") threads")]
      (println msg))
-   (let [ctx (zmq/context thread-count)]
+   (let [ctx (mq/context thread-count)]
      (assoc this :context ctx)))
   (stop
    [this]
    (when context
-     ;; Only applies to ZContext.
-     ;; Which is totally distinct from ZMQ$Context
-     (comment (zmq/close context))
-     (.close context))
+     (comment (mq/terminate! context)))
    (assoc this :context nil)))
 
+;;; TODO: URI should really just be a hash-map
+;;; It also needs a different name, to distinguish it
+;;; from the similar thing in java.util.
+;;; Or wherever it lives.
 (s/defrecord URI [protocol :- s/Str
                    address :- s/Str
                    port :- s/Int]
@@ -46,21 +47,21 @@
 
 ;; Q: How do I want to handle the actual server connections?
 (s/defrecord RendererSocket [context :- ZmqContext
-                              renderers
-                              socket
-                              renderer-url :- URI]
+                             renderers
+                             socket :- mq/Socket
+                             renderer-url :- URI]
   component/Lifecycle
   (start
    [this]
-   (let [sock  (zmq/socket (:context context) :router)
+   (let [sock  (mq/socket! (:context context) :router)
          actual-url (build-url renderer-url)]
      (try
        ;; TODO: Make this another option. It's really only
        ;; for debugging.
-       (zmq/set-router-mandatory sock 1)
-       (zmq/bind sock actual-url)
-       (catch ZMQException ex
-         (raise {:zmq-failure ex
+       (mq/set-router-mandatory! sock true)
+       (mq/bind! sock actual-url)
+       (catch ExceptionInfo ex
+         (raise {:cause ex
                  :binding renderer-url
                  :details actual-url})))
      ;; Q: What do I want to do about the renderers?
@@ -77,30 +78,31 @@
          ;; Or being smarter about tracking it.
          ;; Then again...the easy answer is just to check whether
          ;; we're using "inproc" as the protocol
-         (zmq/unbind socket (build-url renderer-url))
-         (catch ZMQException ex
+         (mq/unbind! socket (build-url renderer-url))
+         (catch ExceptionInfo ex
            (log/info ex "This usually isn't a real problem")))
        (log/debug "Can't unbind an inproc socket"))
-     (zmq/close socket))
+     (mq/close! socket))
    (reset! renderers {})
    (assoc this :socket nil)))
 
-(s/defrecord ServerSocket [context
-                            socket
-                            url :- URI]
+(s/defrecord ServerSocket [context :- ZmqContext
+                           socket :- mq/Socket
+                           url :- URI]
   component/Lifecycle
   (start
    [this]
-   (let [sock (zmq/socket (:context context) :dealer)]
-     (zmq/connect sock (build-url url))
+   (let [sock (mq/socket! (:context context) :dealer)]
+     (println "Connecting server socket to" url)
+     (mq/connect! sock (build-url url))
      (assoc this :socket sock)))
 
   (stop
    [this]
    (when socket
-     (zmq/set-linger socket 0)
-     (zmq/disconnect socket (build-url url))
-     (zmq/close socket))
+     (mq/set-linger! socket 0)
+     (mq/disconnect! socket (build-url url))
+     (mq/close! socket))
    (assoc this :socket nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -115,7 +117,35 @@
          (when port
            (str ":" port)))))
 
+;;; Q: What was this next block for?
+(comment (defrecord Communicator [command-channel
+                                  context
+                                  external-server-sockets
+                                  local-server
+                                  local-server-url
+                                  renderer-socket]
+           component/Lifecycle
 
+           (start
+             [this]
+             (let [ctx (mq/context)]
+               (into this {:context ctx
+                           :external-server-sockets (atom {})
+                           :local-server (build-local-server-connection ctx local-server-url)
+                           :renderer-socket (build-renderer-binding ctx)})))
+
+           (stop
+             [this]
+             ;; Q: Do these need to be disconnected first?
+             ;; They can't be bound, since the other side can't possibly know about them
+             (map mq/close! @external-server-sockets)
+             (destroy-renderer-binding renderer-socket)
+             (destroy-connection! local-server local-server-url)
+             (mq/terminate! context)
+             (into this {:context nil
+                         :external-server-sockets nil
+                         :local-server nil
+                         :renderer-socket nil}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
@@ -146,7 +176,8 @@
                        :address address
                        :port port}))
   ([]
-     (default-server-url "inproc" "local" nil)))
+   ;; Start by defaulting to action
+   (default-server-url "tcp" "localhost" 7841)))
 
 
 (defn new-server

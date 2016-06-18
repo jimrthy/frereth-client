@@ -1,13 +1,18 @@
 (ns dev
-  (:require [clojure.java.io :as io]
+  (:require [cljeromq.core :as mq]
+            [clojure.core.async :as async]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.pprint :refer (pprint)]
             [clojure.repl :refer :all]
             [clojure.test :as test]
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             [clojure.tools.trace :as trace]
+            [com.frereth.client.connection-manager :as con-man]
+            [com.frereth.client.system :as system]
+            [com.frereth.common.util :as util]
             [com.stuartsierra.component :as component]
-            [frereth-client.system :as system]))
+            [schema.core :as s]))
 
 (def system nil)
 
