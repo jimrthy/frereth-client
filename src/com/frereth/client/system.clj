@@ -1,5 +1,7 @@
 (ns com.frereth.client.system
-  "How it's all wired together"
+  "How it's all wired together
+
+TODO: Needs something like slamhound to eliminate unused pieces directly below"
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [com.frereth.client

@@ -12,7 +12,8 @@ to new worlds (which will frequently be on the same server)
 and forward back through here when a player decides to connect
 with those.
 "
-  (:require [cljeromq.constants :as mq-k]
+  (:require [cljeromq.common :as mq-cmn]
+            [cljeromq.constants :as mq-k]
             [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.edn :as edn]
@@ -76,7 +77,7 @@ run on the Renderer."
    :world auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
-(def individual-auth-connection {:auth-sock mq/Socket  ; note that this has the URL
+(def individual-auth-connection {:auth-sock mq-cmn/Socket  ; note that this has the URL
                                  ;; TODO: Refactor this to plain ol' :description
                                  :dialog-description optional-auth-dialog-description})
 

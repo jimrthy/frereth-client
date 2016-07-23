@@ -1,5 +1,6 @@
 (ns com.frereth.client.communicator
-  (:require [cljeromq.core :as mq]
+  (:require [cljeromq.common :as mq-cmn]
+            [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [com.frereth.client.config :as config]
@@ -7,8 +8,7 @@
             [plumbing.core :as plumbing]
             [ribol.core :refer (raise)]
             [schema.core :as s]
-            [taoensso.timbre :as timbre]
-            #_[zeromq.zmq :as zmq])
+            [taoensso.timbre :as timbre])
   (:import [clojure.lang ExceptionInfo]))
 
 ;;;; Can I handle all of the networking code in here?
@@ -17,8 +17,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-(s/defrecord ZmqContext [context :- mq/Context
-                          thread-count :- s/Int]
+(s/defrecord ZmqContext [context :- mq-cmn/Context
+                         thread-count :- s/Int]
   component/Lifecycle
   (start
    [this]
@@ -48,7 +48,7 @@
 ;; Q: How do I want to handle the actual server connections?
 (s/defrecord RendererSocket [context :- ZmqContext
                              renderers
-                             socket :- mq/Socket
+                             socket :- mq-cmn/Socket
                              renderer-url :- URI]
   component/Lifecycle
   (start
@@ -87,7 +87,7 @@
    (assoc this :socket nil)))
 
 (s/defrecord ServerSocket [context :- ZmqContext
-                           socket :- mq/Socket
+                           socket :- mq-cmn/Socket
                            url :- URI]
   component/Lifecycle
   (start

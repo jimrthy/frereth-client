@@ -1,8 +1,8 @@
 (ns com.frereth.client.renderer
+  "Q: Is there any point at all to this ns?"
   (:require [clojure.core.async :as async]
             [clojure.tools.logging :as log]
             [cljeromq.core :as mq]
-            #_[zeromq.zmq :as mq]
             [com.frereth.client.config :as config]
             [com.frereth.client.translator :as trnsltr]
             [ribol.core :refer :all]

@@ -17,7 +17,8 @@ bulk work.
 
 That needs to remain available in the background, to handle things like
 credentials/session expiration"
-  (:require [cljeromq.core :as mq]
+  (:require [cljeromq.common :as mq-cmn]
+            [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [com.frereth.common.async-zmq :as async-zmq]
             [com.frereth.common.schema :as com-skm]
@@ -161,8 +162,8 @@ invalidate that token, forcing a re-AUTH."
     auth-descr :- SocketDescription
     chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)
-    reader :- (s/=> com-skm/java-byte-array mq/Socket)
-    writer :- (s/=> s/Any mq/Socket com-skm/java-byte-array)]
+    reader :- (s/=> com-skm/java-byte-array mq-cmn/Socket)
+    writer :- (s/=> s/Any mq-cmn/Socket com-skm/java-byte-array)]
    (let [auth-sock (component/start auth-descr)]  ; idempotent!!
      (try
        (let [{:keys [url auth-token]} (f auth-sock)
