@@ -323,6 +323,60 @@ run on the Renderer."
       (log/debug "No [unexpired] auth dialog description. Waiting...")
       (send-wait! cb))))
 
+(s/defn establish-connection :- individual-auth-connection
+  [world-id :- manager/world-id
+   ctx :- ContextWrapper
+   url :- mq/zmq-url]
+  ;; TODO: Move this into its own Component that the ConnectionManager can depend on
+  (let [dead-sock (zmq-socket/ctor {:ctx ctx
+                                    :url url
+                                    ;; FIXME: Key management!!
+                                    ;; Doing that right really allows most of this
+                                    ;; to go away.
+                                    ;; And this approach ties me specifically to servers
+                                    ;; that use the "private" key I'm publishing in the
+                                    ;; name of the same sort of "worry about it later"
+                                    ;; spirit that I'm using here
+                                    :client-keys (curve/new-key-pair)
+                                    :server-key (curve/z85-decode "vk<(J}0TEPeEsdZv+ZN.1)N[KlYVZPZgK(.36Qrx")
+                                    :sock-type :dealer
+                                    :direction :connect})
+        sock (component/start dead-sock)]
+    ;; Q: Can this possibly work?
+    ;; A: Probably not...but maybe
+    ;; N.B. As-is, this will throw an AssertionError if
+    ;; anything goes wrong.
+    ;; e.g. There's no server listening.
+    ;; TODO: Need better error handling
+    (try
+      (freshen-auth! sock url world-id)
+      (catch ExceptionInfo ex
+        (let [details (.getData ex)]
+          (if-let [errno (:error-number details)]
+            (let [eagain (mq-k/error->const :again)]
+              (if (= errno eagain)
+                (log/info "No instractions auth available from server. Have we requested any?")
+                (throw ex)))
+            (throw ex))))
+      (catch RuntimeException ex
+        ;; TODO: Be smarter about this.
+        ;; Honestly, we need to propagate a message to
+        ;; the piece that tried to start this so it can retry.
+        ;; That seems like a poor approach, which means I probably
+        ;; need to rethink the wisdom of this stack.
+        ;; Yet again.
+
+        ;; N.B. Also: the error contents make a big difference here.
+        ;; EAGAIN is one thing.
+        ;; Other errors are less benign
+        (let [msg (str "Client failed to refresh auth requirements from server\n"
+                       "Q: Is the server up and running?")]
+          (throw (ex-info msg {:internal ex})))))))
+
+(s/defn release-world! :- individual-auth-connection
+  [world :- individual-auth-connection]
+  (assoc world :auth-sock (component/stop (:auth-sock world))))
+
 (s/defn auth-loop-creator :- fr-skm/async-channel
   "Set up the auth loop
 This is just an async-zmq/EventPair.
