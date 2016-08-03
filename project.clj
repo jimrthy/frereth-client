@@ -5,7 +5,7 @@
                  [com.postspectacular/rotor "0.1.0"]
                  #_[org.clojure/java.classpath "0.2.2"]
                  [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
-                 [org.clojure/tools.nrepl "0.2.11"]]
+                 [org.clojure/tools.nrepl "0.2.12"]]
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))]
   :license {:name "Eclipse Public License"
             :url "http://http://www.eclipse.org/legal/epl-v10.html"}
@@ -14,13 +14,10 @@
   ;; TODO: Look @ https://github.com/clojure-emacs/cider-nrepl
   ;; It has instructions for adding this as a dependency,
   ;; along with the specific middleware to repl-options
-  :plugins [[cider/cider-nrepl "0.9.1" :exclusions [org.clojure/java.classpath]]]
+  :plugins [[cider/cider-nrepl "0.12.0" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
-                   :dependencies [[clj-ns-browser "1.3.1" :exclusions [clojure-complete]]
-                                  [com.cemerick/pomegranate "0.3.0"  ; :exclusions [org.codehaus.plexus/plexus-utils]
-                                   ]
-                                  [org.clojure/tools.namespace "0.2.10"]]
+                   :dependencies [[com.cemerick/pomegranate "0.3.1"]]
                    :global-vars {*warn-on-reflection* true}}}
   :repl-options {:init-ns user
                  :welcome (println "Run (dev) to start")}
