@@ -47,13 +47,15 @@
       #_(component/stop system)
       system))
 
-)
+  )
+
 (deftest bogus-auth
   ;; This seems more than a little ridiculous
   (testing "Can start, fake connections, and stop"
     (println "Top of bogus-auth. Thread count: " (util/thread-count))
     (let [system (component/start (mock-up))
           in->out (async/chan)
+          status-requester (async/chan)
           fake-auth (fn [_]
                       (zmq-sock/ctor {:direction :connect
                                       :sock-type :pair
@@ -65,6 +67,7 @@
                                     loop-name
                                     (:fake-auth system)
                                     in->out
+                                    status-requester
                                     fake-auth)]
       (println "After starting System, running " pre-event-thread-count "threads."
                "After starting the EventPair, have" (util/thread-count))
@@ -97,10 +100,11 @@
                                (util/thread-count))
                       (is (= c status-sink))
                       (is v))))
-                (let [status-chan (:status-chan iface)
-                      [v c] (async/alts!! [[status-chan :whatever] (async/timeout 250)])]
-                  (println "Status request message submitted. Thread count:" (util/thread-count))
-                  (is v)))
+                (let [status-chan (:status-chan iface)]
+                  (is (= status-chan status-requester))
+                  (let [[v c] (async/alts!! [[status-chan :whatever] (async/timeout 250)])]
+                    (println "Status request message submitted. Thread count:" (util/thread-count))
+                    (is v))))
               (is false (str "Missing :interface in\n"
                              (util/pretty wrapped-event-loop)
                              ("with keys:\n" (keys wrapped-event-loop)))))))

@@ -149,6 +149,7 @@ invalidate that token, forcing a re-AUTH."
     loop-name :- s/Str
     auth-descr :- SocketDescription
     chan :- com-skm/async-channel
+    status-chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)]
    (let [reader (fn [sock]
                   ;; Q: What should this do?
@@ -156,11 +157,12 @@ invalidate that token, forcing a re-AUTH."
          writer (fn [sock msg]
                   ;; Q: What should this do?
                   (throw (RuntimeException. "not implemented")))]
-     (authorize this loop-name auth-descr chan f reader writer)))
+     (authorize this loop-name auth-descr chan status-chan f reader writer)))
   ([this :- CommunicationsLoopManager
     loop-name :- s/Str
     auth-descr :- SocketDescription
     chan :- com-skm/async-channel
+    status-chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)
     reader :- (s/=> com-skm/java-byte-array mq-cmn/Socket)
     writer :- (s/=> s/Any mq-cmn/Socket com-skm/java-byte-array)]
@@ -178,18 +180,24 @@ invalidate that token, forcing a re-AUTH."
    ;; They aren't all going to open sockets to each server we might know about.
    ;; And, really, half (most?) of the point is connecting from here to other
    ;; untrusted 3rd party servers.
-   ;; So, really, the approach I've been taking here is correct.
-   (throw (ex-info "This is wrong: start here" {}))
+   ;; And, really, the approach I've been taking here is correct.
    (let [auth-sock (component/start auth-descr)]  ; idempotent!!
      (try
        (let [{:keys [url auth-token]} (f auth-sock)
              sys-descr (describe-system)
+             ;; TODO: Switch to common.system.build-event-loop instead
+             ;; This isn't really an auth socket, though.
+             ;; Still really only want one connection per client to any given
+             ;; server.
+             ;; That part of my recent thinking hasn't changed.
+             _ (throw (ex-info "Start here" {}))
              initialized (cpt-dsl/build sys-descr
                                         {:sock {:sock-type :dealer
                                                 :url url}
                                          :event-loop-interface {:external-reader reader
                                                                 :external-writer writer
-                                                                :in-chan chan}
+                                                                :in-chan chan
+                                                                :status-chan status-chan}
                                          :event-loop {:_name loop-name}})
              injected (assoc-in initialized [:sock :ctx] (:ctx auth-sock))
              started (assoc (component/start injected)
