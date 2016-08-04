@@ -164,6 +164,22 @@ invalidate that token, forcing a re-AUTH."
     f :- (s/=> socket-session SocketDescription)
     reader :- (s/=> com-skm/java-byte-array mq-cmn/Socket)
     writer :- (s/=> s/Any mq-cmn/Socket com-skm/java-byte-array)]
+   ;; Better to supply the EventLoop as part of the static System
+   ;; definition.
+   ;; Except that a huge part of the point is that this isn't
+   ;; static.
+   ;; Isn't it?
+   ;; Connect locally to log in to your local server, but also freely
+   ;; connect through here to any compatible server.
+   ;; That basic point is why the idea of having the Login/Keystore
+   ;; App here is just silly.
+   ;; Might have thousands of end-users connected to a single web-server
+   ;; part of the Renderer, using this library.
+   ;; They aren't all going to open sockets to each server we might know about.
+   ;; And, really, half (most?) of the point is connecting from here to other
+   ;; untrusted 3rd party servers.
+   ;; So, really, the approach I've been taking here is correct.
+   (throw (ex-info "This is wrong: start here" {}))
    (let [auth-sock (component/start auth-descr)]  ; idempotent!!
      (try
        (let [{:keys [url auth-token]} (f auth-sock)
