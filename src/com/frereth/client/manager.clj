@@ -16,11 +16,18 @@ establishes an initial connection, then this takes over to do the long-term
 bulk work.
 
 That needs to remain available in the background, to handle things like
-credentials/session expiration"
+credentials/session expiration
+
+Of course, for that to make sense, the ConnectionManager should actually
+make the socket connection, and then this should receive the connected
+socket and manage the individual user sessions.
+
+That seems like it would be a pretty reasonable approach."
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
             [clojure.core.async :as async]
-            [com.frereth.common.async-zmq :as async-zmq]
+            [com.frereth.common.async-zmq]
+            [com.frereth.common.system :as sys]
             [com.frereth.common.schema :as com-skm]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
@@ -144,13 +151,22 @@ Add that EventPair to this' remotes.
 
 A major piece of this puzzle is that the socket description returned by f
 needs to have an AUTH token attached. And the server should regularly
-invalidate that token, forcing a re-AUTH."
+invalidate that token, forcing a re-AUTH.
+
+The scope on this is really too small. I was thinking in terms of a single
+Renderer using a single Client to connect to multiple servers. When, really,
+the pattern that's emerging looks like a ton of web browsers connecting to
+a web server that uses this library to connect individual users to a slew
+of Server instances.
+
+"
   ([this :- CommunicationsLoopManager
     loop-name :- s/Str
-    auth-descr :- SocketDescription
+    #_[auth-descr :- SocketDescription]
     chan :- com-skm/async-channel
     status-chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)]
+   (throw (ex-info "TODO: Break the drawing board back out and get a sketch of the pieces" {}))
    (let [reader (fn [sock]
                   ;; Q: What should this do?
                   (throw (RuntimeException. "not implemented")))
@@ -160,9 +176,12 @@ invalidate that token, forcing a re-AUTH."
      (authorize this loop-name auth-descr chan status-chan f reader writer)))
   ([this :- CommunicationsLoopManager
     loop-name :- s/Str
-    auth-descr :- SocketDescription
+    #_[auth-descr :- SocketDescription]
+    remote-address :- [s/Int]
+    remote-port :- s/Int
     chan :- com-skm/async-channel
     status-chan :- com-skm/async-channel
+    ;; Q: Any point to this?
     f :- (s/=> socket-session SocketDescription)
     reader :- (s/=> com-skm/java-byte-array mq-cmn/Socket)
     writer :- (s/=> s/Any mq-cmn/Socket com-skm/java-byte-array)]
@@ -181,7 +200,13 @@ invalidate that token, forcing a re-AUTH."
    ;; And, really, half (most?) of the point is connecting from here to other
    ;; untrusted 3rd party servers.
    ;; And, really, the approach I've been taking here is correct.
-   (let [auth-sock (component/start auth-descr)]  ; idempotent!!
+   (let [socket-description {:direction :connect
+                             ;; TODO: Load a cert instead
+                             :client-keys (curve/new-key-pair)
+                             :server-key "FIXME: Find this"
+                             :socket-type :dealer
+                             :url {:address remote-address
+                                   :port remote-port}}]
      (try
        (let [{:keys [url auth-token]} (f auth-sock)
              sys-descr (describe-system)
