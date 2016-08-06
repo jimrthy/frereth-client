@@ -88,27 +88,6 @@ Note that we could have multiple connections (and even sessions) to the same ser
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internals
-;;; Yes, I'm flagrantly abusing the Components library here.
-
-(defn initial-system-structure
-  []
-  '{:sock com.frereth.common.zmq-socket/ctor
-    :event-loop com.frereth.common.async-zmq/ctor
-    :event-loop-interface com.frereth.common.async-zmq/ctor-interface
-   ;; TODO: Really need to be able to just
-   ;; specify the same context that descr
-   ;; should have already had injected
-   })
-
-(defn system-dependencies
-  []
-  {:event-loop {:interface :event-loop-interface}
-   :event-loop-interface {:ex-sock :sock}})
-
-(s/defn describe-system
-  []
-  {:structure (initial-system-structure)
-   :dependencies (system-dependencies)})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
@@ -162,11 +141,9 @@ of Server instances.
 "
   ([this :- CommunicationsLoopManager
     loop-name :- s/Str
-    #_[auth-descr :- SocketDescription]
     chan :- com-skm/async-channel
     status-chan :- com-skm/async-channel
     f :- (s/=> socket-session SocketDescription)]
-   (throw (ex-info "TODO: Break the drawing board back out and get a sketch of the pieces" {}))
    (let [reader (fn [sock]
                   ;; Q: What should this do?
                   (throw (RuntimeException. "not implemented")))
@@ -176,7 +153,6 @@ of Server instances.
      (authorize this loop-name auth-descr chan status-chan f reader writer)))
   ([this :- CommunicationsLoopManager
     loop-name :- s/Str
-    #_[auth-descr :- SocketDescription]
     remote-address :- [s/Int]
     remote-port :- s/Int
     chan :- com-skm/async-channel

@@ -7,7 +7,7 @@ to a manager/CommunicationsLoopManager.
 
 Most common workflow that I foresee:
 
-That will probably start w/ an auth dialog provides links
+That will probably start w/ an auth dialog that provides links
 to new worlds (which will frequently be on the same server)
 and forward back through here when a player decides to connect
 with those.
@@ -36,6 +36,7 @@ with those.
 
 (def ui-description
   "TODO: This (and the pieces that build upon it) really belong in common.
+Or maybe App.
 Since, really, it's the over-arching interface between renderer and server.
 And it needs to be fleshed out much more thoroughly.
 This is the part that flows down to the Renderer"
@@ -144,9 +145,7 @@ run on the Renderer."
   {:respond fr-skm/async-channel})
 
 (def connection-request
-  {;; the url structure is already defined elsewhere
-   ;; TODO: Track it down
-   :url s/Any
+  {:url mq/zmq-url
    :request-id manager/world-id})
 
 (def connection-callback (into connection-request callback-channel))
@@ -341,8 +340,7 @@ Really need some sort of SESSION token"
                             this
                             (:url cb)
                             (:request-id cb))]
-    (let [current-description #_(raise {:start-here
-                                      "Need to pre-process and prep for renderer"})
+    (let [current-description
           (-> raw-description pre-process-auth-dialog extract-renderer-pieces)]
       (comment
         (log/debug "Current Description:\n"
@@ -399,7 +397,7 @@ Really need some sort of SESSION token"
 (s/defn auth-loop-creator :- fr-skm/async-channel
   "Set up the auth loop
 This is just an async-zmq/EventPair.
-Actually, this is just an async/pipeline-async transducer.
+Actually, this should just be an async/pipeline-async transducer.
 TODO: Switch to that"
   [{:keys [auth-request message-context status-check]
     :as this} :- ConnectionManager
