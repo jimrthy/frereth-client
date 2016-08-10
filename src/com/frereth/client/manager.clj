@@ -25,6 +25,7 @@ socket and manage the individual user sessions.
 That seems like it would be a pretty reasonable approach."
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
+            [cljeromq.curve :as curve]
             [clojure.core.async :as async]
             [com.frereth.common.async-zmq]
             [com.frereth.common.system :as sys]
@@ -150,7 +151,7 @@ of Server instances.
          writer (fn [sock msg]
                   ;; Q: What should this do?
                   (throw (RuntimeException. "not implemented")))]
-     (authorize this loop-name auth-descr chan status-chan f reader writer)))
+     (authorize this loop-name chan status-chan f reader writer)))
   ([this :- CommunicationsLoopManager
     loop-name :- s/Str
     remote-address :- [s/Int]

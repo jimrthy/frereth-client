@@ -1,16 +1,30 @@
 (ns com.frereth.client.connection-manager
-  "Sets up basic auth w/ a server.
+  "Sets up basic connection with a server
 
-That auth is really more of the handshake/cert exchange
+There are really 2 phases to this:
+1. Cert exchange
+   This is part of the curve encryption protocol and invisible to the client
+2. Protocol handshake
+   Where client and server agree on how they'll be handling future communications
+
+Note that this protocol agreement indicates the communications mechanism
+that will probably be most convenient for most apps.
+
+Apps shall be free to use whatever comms protocol works best for them.
+This protocol is really more of a recommendation than anything else.
+
+At this point, anyway. That part seems both dangerous and necessary.
+
+The protocol contract is really more of the handshake/cert exchange
 sort of thing. Once that part's done, this should hand off
 to a manager/CommunicationsLoopManager.
 
-Most common workflow that I foresee:
+Note that multiple end-users can use the connection being established
+here. The credentials exchange shows that the other side has access to
+the server's private key, and that this side has access to the appropriate
+client private key (assuming the server checks).
 
-That will probably start w/ an auth dialog that provides links
-to new worlds (which will frequently be on the same server)
-and forward back through here when a player decides to connect
-with those.
+It says nothing about the end-users who are using this connection.
 "
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.constants :as mq-k]
@@ -23,7 +37,7 @@ with those.
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
-            [joda-time :as dt]
+            [clj-time.core :as dt]
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as log])

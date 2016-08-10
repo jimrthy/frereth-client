@@ -48,10 +48,13 @@ Major conceptual problem with existing approach: I'm trying to
 minimize open Server ports. Which means that worlds really have
 to share a socket.
 
-Well, they don't have to. This is something to keep in mind. Having
-1 socket to each World seems like it would be very inefficient if they're
+Well, they don't have to. This is something to keep in mind. Even if
+they all go over the same port, each could use its own Socket.
+
+That seems like it would be very inefficient if they're
 all going over the same port, but it would make the actual connection
-management code simpler/easier.
+management code simpler/easier. So it's worth experimenting to see what
+sort of impact it actually has.
 
 ### common.async-zmq.EventPair
 
@@ -69,8 +72,6 @@ That isn't a concern here: the EventPair owns this, so it's perfectly
 reasonable for it to handle that part.
 
 Although...making that declarative would simplify this code a bit.
-
-TODO: Go ahead and make that conversion.
 
 #### common.async-zmq.EventPairInterface
 
@@ -91,20 +92,9 @@ a single Server.
 
 ##### status-chan
 
-Write something (anything, currently) to this core.async Channel
-to request a status report.
-
-###### status-out
-
-A write to status-chan will result in a status report written to
-this core.async channel.
-
-###### TODO
-
-Really should just wrap up that status request/response in a single
-synchronous function.
-
-Assuming I haven't done this already.
+Write your own core.async Channel to this core.async Channel
+to request a status report. That will be published back out over
+the Channel you supplied.
 
 #### Explanation
 
