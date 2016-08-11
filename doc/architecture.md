@@ -113,13 +113,31 @@ Maybe of URLs to the go loops?"
 
 It's pretty obviously a go loop.
 
-TODO: What is this actually doing?
+### Q: What is this actually doing?
 
-Q: Whatever it is, does it make any sense here?
+A: It listens to the auth-request and status-check channels.
+
+When it receives an auth-request message, it calls dispatch-auth-response!
+
+#### dispatch-auth-response!
+
+This checks for an unexpired AUTH dialog description. If it doesn't find one,
+it requests another from the server and sends a :hold-on response.
+
+### More important Q: Does it make any sense here?
+
+A: Nope. Not as written, anyway.
 
 ## auth-request
 
 Another core.async channel
+
+Q: What is this for?
+
+It's used in the initiate-handshake function. We write a request (with a response
+channel) to it periodically until we either get a response or give up.
+
+
 
 ## local-auth-url
 

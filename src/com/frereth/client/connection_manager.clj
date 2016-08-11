@@ -14,7 +14,7 @@ Apps shall be free to use whatever comms protocol works best for them.
 This protocol is really more of a recommendation than anything else.
 
 At this point, anyway. That part seems both dangerous and necessary.
-
+n
 The protocol contract is really more of the handshake/cert exchange
 sort of thing. Once that part's done, this should hand off
 to a manager/CommunicationsLoopManager.
@@ -31,6 +31,8 @@ It says nothing about the end-users who are using this connection.
             [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.edn :as edn]
+            ;; Note that this is really only being used here for schema
+            ;; So far. This seems wrong.
             [com.frereth.client.manager :as manager]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.schema :as fr-skm]
@@ -42,12 +44,19 @@ It says nothing about the end-users who are using this connection.
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
+           [com.frereth.common.manager.CommunicationsLoopManager]
            [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
            [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
+(def server-connection-map
+  {zmq/url CommunicationsLoopManager})
+
+;;;; TODO: None of the schema-defs between here and
+;;;; the ConnectionManager defrecord belong in here.
+;;;; Most of them probably shouldn't exist at all
 (def ui-description
   "TODO: This (and the pieces that build upon it) really belong in common.
 Or maybe App.
@@ -92,54 +101,56 @@ run on the Renderer."
    :world auth-dialog-dynamic-description))
 (def optional-auth-dialog-description (s/maybe auth-dialog-description))
 
-(def individual-auth-connection {:auth-sock mq-cmn/Socket  ; note that this has the URL
-                                 ;; TODO: Refactor this to plain ol' :description
-                                 :dialog-description optional-auth-dialog-description})
+(def individual-connection
+  "Q: What should this actually look like?"
+  {:auth-sock mq-cmn/Socket  ; note that this has the URL
+   ;; TODO: Refactor this to plain ol' :description
+   ;; Except world/UI descriptions don't belong in here.
+   :dialog-description optional-auth-dialog-description})
 
-(def auth-connections {manager/world-id individual-auth-connection})
+(def auth-connections
+  "The thinking behind this is circular.
 
-(declare auth-loop-creator establish-connection release-world!)
+  Shouldn't have any notion of worlds here.
+
+  Those belong to the manager namespace. Which needs to be renamed."
+  {manager/world-id individual-auth-connection})
+
+(declare establish-connection release-world!)
 (s/defrecord ConnectionManager
-    [;; Really needs to be a map
-     ;; Maybe of URLs to the go loops?
-     auth-loop :- fr-skm/async-channel
-     auth-request :- fr-skm/async-channel
-     local-auth-url :- mq/zmq-url
+    [auth-request :- fr-skm/async-channel
+     local-url :- mq/zmq-url
      message-context :- ContextWrapper
-     status-check :- fr-skm/async-channel
-     ;; A map of world-ids to auth-connections
-     ;; It might make more sense to have multiple ConnectionManager
-     ;; instances, each with a single world.
-     ;; Alternatively, stick this inside the atom so
-     ;; we don't have to worry about state: worlds
-     ;; is just a map of values.
-     ;; That approach is much more tempting, but
-     ;; this entire thing is inherently stateful.
-     ;; So run with this approach for now
-     worlds :- fr-skm/atom-type]
+     server-connections :- fr-skm/atom-type  ; server-connection-map
+     status-check :- fr-skm/async-channel]
   component/Lifecycle
   (start
    [this]
    ;; Create pieces that weren't supplied externally
-   (let [auth-request (or auth-request (async/chan))
-         status-check (or status-check (async/chan))
-         worlds (or worlds (atom {:local (establish-connection :local message-context local-auth-url)}))
-         almost (assoc this
-                       :auth-request auth-request
-                       :status-check status-check)
-         auth-loop (auth-loop-creator almost local-auth-url)]
+    (let [auth-request (or auth-request (async/chan))
+          server-connections (or server-connections
+                                 (atom {:local (establish-connection :local
+                                                                     message-context
+                                                                     local-url)}))
+          status-check (or status-check (async/chan))
+          almost (assoc this
+                        :auth-request auth-request
+                        :status-check status-check)
+          ;; Looking at it from this angle, keeping an auth-loop with a
+          ;; fresh dialog to the local server does make some sense.
+          auth-loop (auth-loop-creator almost local-auth-url)]
      (assoc almost :auth-loop auth-loop)))
   (stop
    [this]
-   (when worlds
-     (let [actual-worlds @worlds]
+   (when server-connections
+     (let [actual-connections @server-connections]
        ;; TODO: Hang on to the individual world description
        ;; Seems like it would make reconnecting
        ;; or session restoration easier
        ;; Then again, that's really a higher-level scope.
        ;; And it's YAGNI
-       (doseq [world (vals actual-worlds)]
-         (release-world! world))))
+       (doseq [connection (vals actual-connections)]
+         (release-connection! connection))))
    (when auth-request
      (async/close! auth-request))
    (when status-check
@@ -404,71 +415,72 @@ Really need some sort of SESSION token"
                        "Q: Is the server up and running?")]
           (throw (ex-info msg {:internal ex})))))))
 
-(s/defn release-world! :- individual-auth-connection
-  [world :- individual-auth-connection]
-  (assoc world :auth-sock (component/stop (:auth-sock world))))
+(s/defn release-connection! :- individual-connection
+  [connection :- individual-connection]
+  (assoc connection :auth-sock (component/stop (:auth-sock connection))))
 
-(s/defn auth-loop-creator :- fr-skm/async-channel
-  "Set up the auth loop
+(comment
+  (s/defn auth-loop-creator :- fr-skm/async-channel
+    "Set up the auth loop
 This is just an async-zmq/EventPair.
 Actually, this should just be an async/pipeline-async transducer.
 TODO: Switch to that"
-  [{:keys [auth-request message-context status-check]
-    :as this} :- ConnectionManager
-    auth-url :- mq/zmq-url]
-  (let [url-string (mq/connection-string auth-url)
-        ctx (:ctx message-context)
-        auth-sock (mq/connected-socket! ctx :dealer url-string)
-        minutes-5 (partial async/timeout (* 5 (util/minute)))
-        done (promise)
-        interesting-channels [auth-request status-check]]
-    ;; It seems almost wasteful to start this before there's any
-    ;; interest to express. But the 90% (at least) use case is for
-    ;; the local server where there won't ever be any reason
-    ;; for it to timeout.
-    (request-auth-descr! auth-sock)
-    (async/go
-      (loop [t-o (minutes-5)]
-        (try
-          ;; TODO: Really need a ribol manager in here to distinguish
-          ;; between the "stop-iteration" signal and actual errors
-          (let [[v c] (async/alts! (conj interesting-channels t-o))]
-            ;; Right here, we have :url, :request-id, and the response channel in :respond
-            (log/debug "Incoming to AUTH loop:\n'"
-                       v "' -- a " (class v)
-                       "\non\n" c)
-            (if (not= t-o c)
-              (if v
-                (if (= auth-request c)
-                  (dispatch-auth-response! this v)
+    [{:keys [auth-request message-context status-check]
+      :as this} :- ConnectionManager
+     auth-url :- mq/zmq-url]
+    (let [url-string (mq/connection-string auth-url)
+          ctx (:ctx message-context)
+          auth-sock (mq/connected-socket! ctx :dealer url-string)
+          minutes-5 (partial async/timeout (* 5 (util/minute)))
+          done (promise)
+          interesting-channels [auth-request status-check]]
+      ;; It seems almost wasteful to start this before there's any
+      ;; interest to express. But the 90% (at least) use case is for
+      ;; the local server where there won't ever be any reason
+      ;; for it to timeout.
+      (request-auth-descr! auth-sock)
+      (async/go
+        (loop [t-o (minutes-5)]
+          (try
+            ;; TODO: Really need a ribol manager in here to distinguish
+            ;; between the "stop-iteration" signal and actual errors
+            (let [[v c] (async/alts! (conj interesting-channels t-o))]
+              ;; Right here, we have :url, :request-id, and the response channel in :respond
+              (log/debug "Incoming to AUTH loop:\n'"
+                         v "' -- a " (class v)
+                         "\non\n" c)
+              (if (not= t-o c)
+                (if v
+                  (if (= auth-request c)
+                    (dispatch-auth-response! this v)
+                    (do
+                      (assert (= status-check c))
+                      ;; TODO: This absolutely needs to be an offer
+                      ;; TODO: Add error handling. Don't want someone to
+                      ;; break this loop by submitting, say, a keyword
+                      ;; instead of a channel
+                      (async/>! v "I'm alive")))
                   (do
-                    (assert (= status-check c))
-                    ;; TODO: This absolutely needs to be an offer
-                    ;; TODO: Add error handling. Don't want someone to
-                    ;; break this loop by submitting, say, a keyword
-                    ;; instead of a channel
-                    (async/>! v "I'm alive")))
-                (do
-                  (log/warn "Incoming channel closed. Exiting AUTH loop")
-                  (deliver done true)))
-              (log/debug "AUTH loop heartbeat")))
-          (catch RuntimeException ex
-            (log/error ex "Dispatching an auth request.\nThis should probably be fatal for dev time.")
-            (let [dialog-description-atom (:dialog-description this)
-                  dialog-description (if dialog-description-atom
-                                       (deref dialog-description-atom)
-                                       "missing atom")
-                  msg {:problem ex
-                       :component this
-                       :details {:dialog-description dialog-description
-                                 :auth-request auth-request
-                                 :time-out t-o}}]
-              (comment (raise msg))
-              (log/warn msg "\nI'm tired of being forced to (reset) every time I have a glitch"))))
-        (when (not (realized? done))
-          (log/debug "AUTH looping")
-          (recur (minutes-5))))
-      (log/warn "ConnectionManager's auth-loop exited"))))
+                    (log/warn "Incoming channel closed. Exiting AUTH loop")
+                    (deliver done true)))
+                (log/debug "AUTH loop heartbeat")))
+            (catch RuntimeException ex
+              (log/error ex "Dispatching an auth request.\nThis should probably be fatal for dev time.")
+              (let [dialog-description-atom (:dialog-description this)
+                    dialog-description (if dialog-description-atom
+                                         (deref dialog-description-atom)
+                                         "missing atom")
+                    msg {:problem ex
+                         :component this
+                         :details {:dialog-description dialog-description
+                                   :auth-request auth-request
+                                   :time-out t-o}}]
+                (comment (raise msg))
+                (log/warn msg "\nI'm tired of being forced to (reset) every time I have a glitch"))))
+          (when (not (realized? done))
+            (log/debug "AUTH looping")
+            (recur (minutes-5))))
+        (log/warn "ConnectionManager's auth-loop exited")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
