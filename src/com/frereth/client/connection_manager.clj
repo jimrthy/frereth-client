@@ -117,7 +117,7 @@ It says nothing about the end-users who are using this connection.
     :as con-man} :- ConnectionManager
    {:keys [server-id :- manager/world-id-type
            url :- mq/zmq-url]}]
-  (when-not (server-connections deref (get server-id))
+  (when-not (-> server-connections deref (get server-id))
     (let [descr {:client-keys client-keys
                  :context ctx
                  :event-loop-name server-id
