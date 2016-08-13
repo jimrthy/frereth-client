@@ -3,6 +3,7 @@
   :dependencies [[byte-transforms "0.1.4"]  ;; Q: Does this make sense?
                  [com.frereth/common "0.0.1-SNAPSHOT"]
                  [com.postspectacular/rotor "0.1.0"]
+                 [org.clojure/clojure "1.9.0-alpha10"]
                  [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
                  [org.clojure/tools.nrepl "0.2.12"]]
 
