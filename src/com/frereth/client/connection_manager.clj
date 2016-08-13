@@ -17,7 +17,7 @@ At this point, anyway. That part seems both dangerous and necessary.
 n
 The protocol contract is really more of the handshake/cert exchange
 sort of thing. Once that part's done, this should hand off
-to a manager/CommunicationsLoopManager.
+to a world-manager/WorldManager.
 
 Note that multiple end-users can use the connection being established
 here. The credentials exchange shows that the other side has access to
@@ -27,7 +27,6 @@ client private key (assuming the server checks).
 It says nothing about the end-users who are using this connection.
 "
   (:require [cljeromq.common :as mq-cmn]
-            [cljeromq.constants :as mq-k]
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]  ; FIXME: Debug only
             [clojure.core.async :as async]
@@ -35,21 +34,18 @@ It says nothing about the end-users who are using this connection.
             ;; Note that this is really only being used here for schema
             ;; So far. This seems wrong.
             [com.frereth.client.world-manager :as manager]
-            [com.frereth.common.communication :as com-comm]
             [com.frereth.common.schema :as fr-skm]
             [com.frereth.common.system :as com-sys]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
-            [clj-time.core :as dt]
             [ribol.core :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
            [com.frereth.client.world_manager WorldManager]
-           [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
-           [com.stuartsierra.component SystemMap]
-           [java.util Date]))
+           [com.frereth.common.zmq_socket ContextWrapper]
+           [com.stuartsierra.component SystemMap]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -57,7 +53,7 @@ It says nothing about the end-users who are using this connection.
 (def server-id-type manager/generic-id)
 
 (def server-connection-map
-  (atom {mq/zmq-url CommunicationsLoopManager}))
+  (atom {mq/zmq-url WorldManager}))
 
 (declare establish-server-connection!)
 (s/defrecord ConnectionManager
@@ -102,7 +98,7 @@ It says nothing about the end-users who are using this connection.
 (def connection-request
   "Q: Does this make sense any more?"
   {:url mq/zmq-url
-   :request-id manager/world-id})
+   :request-id manager/world-id-type})
 
 (def connection-callback (into connection-request callback-channel))
 
@@ -119,9 +115,9 @@ It says nothing about the end-users who are using this connection.
            server-key
            ctx :- ContextWrapper]
     :as con-man} :- ConnectionManager
-   {:keys [server-id :- manager/world-id
+   {:keys [server-id :- manager/world-id-type
            url :- mq/zmq-url]}]
-  (when-not (server-connections deref (get world-id))
+  (when-not (server-connections deref (get server-id))
     (let [descr {:client-keys client-keys
                  :context ctx
                  :event-loop-name server-id
@@ -130,7 +126,7 @@ It says nothing about the end-users who are using this connection.
           ;; The world-manager takes responsibility for starting/stopping
           event-loop (com-sys/build-event-loop descr)
           world-manager (manager/ctor {:event-loop event-loop})]
-      (swap! server-connections #(assoc % world-id (component/start world-manager))))))
+      (swap! server-connections #(assoc % server-id (component/start world-manager))))))
 
 (comment
   (let [descr {:client-keys (curve/new-key-pair)
@@ -149,7 +145,7 @@ It says nothing about the end-users who are using this connection.
   [this :- ConnectionManager
    renderer-session-id :- manager/session-id-type
    server-id :- server-id-type
-   world-id :- manager/world-id]
+   world-id :- manager/world-id-type]
   (if-let [world-manager (-> this :server-connections deref (get server-id))]
     (manager/connect-renderer-to-world! world-manager world-id renderer-session-id)
     (throw (ex-info "Must call establish-server-connection! first"))))
@@ -159,7 +155,7 @@ It says nothing about the end-users who are using this connection.
 
 TODO: This seems generally useful and probably belongs in common instead"
   ([this :- ConnectionManager
-    world-id :- manager/world-id
+    world-id :- manager/world-id-type
     method :- s/Keyword
     data :- s/Any
     timeout-ms :- s/Int]
@@ -191,7 +187,7 @@ TODO: This seems generally useful and probably belongs in common instead"
          (log/error "channel to transmitter for world" world-id " closed")
          (raise :timeout {})))))
   ([this :- ConnectionManager
-    request-id :- manager/world-id
+    request-id :- manager/world-id-type
     method :- s/Keyword
     data :- s/Any]
    (rpc this request-id method data (* 5 util/seconds))))
@@ -199,7 +195,7 @@ TODO: This seems generally useful and probably belongs in common instead"
 (s/defn rpc-sync
   "True synchronous Request/Reply"
   ([this :- ConnectionManager
-    request-id :- manager/world-id
+    request-id :- manager/world-id-type
     method :- s/Keyword
     data :- s/Any
     timeout :- s/Int]
@@ -218,41 +214,10 @@ TODO: This seems generally useful and probably belongs in common instead"
      (log/debug "rpc-sync returning:" result)
      result))
   ([this :- ConnectionManager
-    request-id :- manager/world-id
+    request-id :- manager/world-id-type
     method :- s/Keyword
     data :- s/Any]
    (rpc-sync this request-id method data (* 5 (util/seconds)))))
-
-(s/defn initiate-handshake :- optional-auth-dialog-description
-  "The return value is wrong, but we do need something like this"
-  [this :- ConnectionManager
-   request :- connection-request
-   attempts :- s/Int
-   timeout-ms :- s/Int]
-  (let [receiver (async/chan)
-        responder (assoc request :respond receiver)
-        transmitter (:auth-request this)]
-    (loop [remaining-attempts attempts]
-      (when (< 0 remaining-attempts)
-        (log/debug "Top of handshake loop. Remaining attempts:" remaining-attempts)
-        (let [[v c] (async/alts!! [[transmitter responder] (async/timeout timeout-ms)])]
-          (if v  ; did the submission succeed?
-            ;; TODO: decrement the timeout by however many we spent waiting for submission
-            (let [[real-response c] (async/alts!! [receiver (async/timeout timeout-ms)])]
-              (if (= real-response :hold-please)
-                (do
-                  (log/info "Request for AUTH dialog ACK'd. Waiting...")
-                  (recur (dec remaining-attempts)))
-                (do
-                  (log/info "Successfully asked transmitter to return reply on:\n " responder)
-                  ;; It isn't obvious, but this is the happy path
-                  real-response)))
-            (if (= c transmitter)
-              (log/error "Auth channel closed")
-              (do
-                (log/warn "Timed out trying to transmit request for AUTH dialog.\n"
-                          (dec remaining-attempts) " attempts remaining")
-                (recur (dec remaining-attempts))))))))))
 
 (comment
   (require '[dev])

@@ -2,12 +2,7 @@
   "This is designed to work in concert with the ConnectionManager: that
 establishes an initial connection to a Server, then this takes over to
 do the long-term bulk work.
-
-Of course, for that to make sense, the ConnectionManager should actually
-make the socket connection, and then this should receive the connected
-socket and manage the individual user sessions.
-
-TODO: that"
+"
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]
@@ -37,14 +32,14 @@ TODO: that"
 
 ;; TODO: Refactor/rename this to world-identifier
 ;; Or maybe world-id-type
-(def world-id generic-id)
+(def world-id-type generic-id)
 
 (def session-id-type generic-id)
 (def renderer-session {:channels {:->renderer com-skm/async-channel
                                   :->server com-skm/async-channel}})
 
 (def remote-map
-  {world-id {session-id-type renderer-session}})
+  {world-id-type {session-id-type renderer-session}})
 (def remote-map-atom
   "Can't really define/test this using schema. Still seems useful for documentation"
   (class (atom remote-map)))

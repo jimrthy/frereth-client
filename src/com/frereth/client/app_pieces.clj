@@ -1,7 +1,22 @@
 (ns com.frereth.client.app-pieces
   "Odds and ends that should be part of the app library but were cluttering up files here instead
 
-Really parts of a first draft that I'm not quite ready to throw out just yet")
+  Really parts of a first draft that I'm not quite ready to throw out just yet"
+  (:require [cljeromq.common :as mq-cmn]
+            [cljeromq.constants :as mq-k]
+            [cljeromq.core :as mq]
+            [clj-time.core :as dt]
+            [clojure.core.async :as async]
+            [com.frereth.client.connection-manager :as connection-manager]
+            [com.frereth.client.world-manager :as world-manager]
+            [com.frereth.common.communication :as com-comm]
+            [com.frereth.common.util :as util]
+            [schema.core :as s]
+            [taoensso.timbre :as log])
+  (:import [clojure.lang ExceptionInfo]
+           [com.frereth.client.connection_manager ConnectionManager]
+           [com.frereth.common.zmq_socket SocketDescription]
+           [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -14,7 +29,7 @@ Really parts of a first draft that I'm not quite ready to throw out just yet")
   This is the part that flows down to the Renderer"
   {:data {:type s/Keyword
           :version s/Any
-          :name s/Any ; manager/world-id
+          :name world-manager/world-id-type
           :body s/Any
           (s/optional-key :script) [s/Any]
           (s/optional-key :css) [s/Any]}})
@@ -135,7 +150,7 @@ TODO: Move to manager
 
 (s/defn public-key-matches? :- s/Bool
   [public-key :- s/Uuid
-   request-id :- manager/world-id]
+   request-id :- world-manager/world-id-type]
   ;; Really just a placeholder
   ;; TODO: implement
   true)
@@ -152,7 +167,7 @@ TODO: Move to manager
    ;; until we get to a layer that needs them split
    ;; Then again, as written, this is hard-coded to a single
    ;; server URL. So there's a bigger picture item to worry about
-   request-id :- manager/world-id]
+   request-id :- world-manager/world-id-type]
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (when (public-key-matches? public-key request-id)
     (try
@@ -166,7 +181,7 @@ TODO: Move to manager
                 (configure-session! this incoming-frame)
                 frame)
               (if static-url
-                (raise {:not-implemented (str "Download world from " static-url)})
+                (throw (ex-info "Not Implemented" {:todo (str "Download world from " static-url)}))
                 (assert false "World missing both description and URL for downloading description"))))
           (log/warn "Incoming frame, with keys:\n"
                     (keys frame)
@@ -178,7 +193,7 @@ TODO: Move to manager
 (s/defn freshen-auth! :- optional-auth-dialog-description
   [auth-sock :- SocketDescription
    {:keys [protocol address port] :as url}
-   request-id :- manager/world-id]
+   request-id :- world-manager/world-id-type]
   ;; TODO: Need a background loop (would an EventPair be appropriate?)
   ;; that updates :dialog-description as updates arrive
   ;; Should not be accessing a raw socket here, under any circumstances
@@ -204,7 +219,7 @@ TODO: Move to manager
         ;; handle here.
         ;; There's a part of me that thinks the initial connection to localhost deserves
         ;; special treatment. Generally, I think that part's wrong.
-        (raise :start-here)
+        (throw (ex-info "start-here" {:why "I thought this was where I needed to go next"}))
         description-frames))
     (catch ExceptionInfo ex
       (if-let [errno (:error-number (.getData ex))]
@@ -221,7 +236,7 @@ TODO: Move to manager
   "If we're missing the description, or it's expired, try to read a more recent"
   [this :- ConnectionManager
    url :- mq/zmq-url
-   world-id :- manager/world-id]
+   world-id :- world-manager/world-id-type]
   (if-let [potential-description (-> this :worlds deref (get world-id) :dialog-description)]
     (do
       (log/debug "The description we have now:\n" (util/pretty potential-description))
@@ -236,7 +251,7 @@ TODO: Move to manager
 
 (s/defn send-auth-descr-response!
   [{:keys [dialog-description] :as this}
-   {:keys [request-id respond] :as destination} :- connection-callback
+   {:keys [request-id respond] :as destination} :- connection-manager/connection-callback
    new-description :- auth-dialog-description]
   (comment (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
                       new-description)
@@ -253,7 +268,7 @@ TODO: Move to manager
 
 (s/defn dispatch-auth-response! :- s/Any
   [this :- ConnectionManager
-   cb :- connection-callback]
+   cb :- connection-manager/connection-callback]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
   (if-let [raw-description (unexpired-auth-description
                             this
@@ -451,3 +466,34 @@ of Server instances.
         injected)
       (finally
         (component/stop prereq)))))
+
+(s/defn initiate-handshake :- optional-auth-dialog-description
+  "The return value is wrong, but we do need something like this"
+  [this :- ConnectionManager
+   request :- connection-manager/connection-request
+   attempts :- s/Int
+   timeout-ms :- s/Int]
+  (let [receiver (async/chan)
+        responder (assoc request :respond receiver)
+        transmitter (:auth-request this)]
+    (loop [remaining-attempts attempts]
+      (when (< 0 remaining-attempts)
+        (log/debug "Top of handshake loop. Remaining attempts:" remaining-attempts)
+        (let [[v c] (async/alts!! [[transmitter responder] (async/timeout timeout-ms)])]
+          (if v  ; did the submission succeed?
+            ;; TODO: decrement the timeout by however many we spent waiting for submission
+            (let [[real-response c] (async/alts!! [receiver (async/timeout timeout-ms)])]
+              (if (= real-response :hold-please)
+                (do
+                  (log/info "Request for AUTH dialog ACK'd. Waiting...")
+                  (recur (dec remaining-attempts)))
+                (do
+                  (log/info "Successfully asked transmitter to return reply on:\n " responder)
+                  ;; It isn't obvious, but this is the happy path
+                  real-response)))
+            (if (= c transmitter)
+              (log/error "Auth channel closed")
+              (do
+                (log/warn "Timed out trying to transmit request for AUTH dialog.\n"
+                          (dec remaining-attempts) " attempts remaining")
+                (recur (dec remaining-attempts))))))))))

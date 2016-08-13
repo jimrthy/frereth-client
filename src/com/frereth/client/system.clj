@@ -14,7 +14,7 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]
             [schema.core :as s])
-  (:import [com.frereth.client.world_manager CommunicationsLoopManager]
+  (:import #_[com.frereth.client.world_manager WorldManager]
            [com.frereth.common.async_zmq EventPair]
            [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
            [com.stuartsierra.component SystemMap]))
