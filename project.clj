@@ -3,8 +3,10 @@
   :dependencies [[byte-transforms "0.1.4"]  ;; Q: Does this make sense?
                  [com.frereth/common "0.0.1-SNAPSHOT"]
                  [com.postspectacular/rotor "0.1.0"]
+                 ;; I'd much rather just inherit this from frereth.common.
+                 ;; CIDER doesn't seem to pick that up correctly.
+                 ;; TODO: Make this go back away
                  [org.clojure/clojure "1.9.0-alpha10"]
-                 [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
                  [org.clojure/tools.nrepl "0.2.12"]]
 
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))

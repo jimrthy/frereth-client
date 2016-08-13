@@ -37,7 +37,11 @@ TODO: that"
 (def world-id (s/cond-pre s/Keyword s/Str s/Uuid))
 
 (def remote-map
-  "Yes, this is really pretty meaningless, except possibly for documentation"
+  "Can't really define/test this using schema. Still seems useful for documentation"
+  ;; Note that the value isn't an EventPair.
+  ;; We really need a dispatcher for moving messages between the EventPair
+  ;; which represents a connection to a Server and whichever renderer is
+  ;; attached to any given world
   (class (atom {world-id EventPair})))
 
 (def socket-session
@@ -46,31 +50,41 @@ Note that we could have multiple connections (and even sessions) to the same ser
   {:url SocketDescription
    :auth-token com-skm/java-byte-array})
 
-(s/defrecord CommunicationsLoopManager [remotes :- remote-map]
+(s/defrecord WorldManager [event-loop :- EventPair
+                           remotes :- remote-map]
   component/Lifecycle
   (start
-   [this]
-   (if-not remotes
-     (assoc this :remotes (atom {}))
-     this))
+    [this]
+    ;; Caller supplies the event-loop we maintain responsibility for
+    ;; starting/stopping.
+    ;; This is an advantage of hara.event.
+    ;; Q: Is this a feature that's worth adding to component-dsl?
+    (let [this (assoc this :event-loop (component/start event-loop))]
+      (if-not remotes
+        (assoc this :remotes (atom {}))
+        this)))
   (stop
-   [this]
-   (if remotes
-     (do
-       (doseq [[_name remote] @remotes]
-         ;; Q: Why am I shutting down the event
-         ;; loop before closing its communications pathways?
-         ;; A: Well, maybe there's an advantage to
-         ;; giving them the final opportunity to flush
-         ;; the pipeline, but it probably doesn't matter.
-         (log/debug "Stopping remote " _name
-                    "\nwith keys:" (keys remote)
-                    "\nand auth token: " (:auth-token remote))
-         ;; FIXME: Shouldn't need to do this
-         (component/stop (dissoc remote :auth-token)))
-       (log/debug "Communications Loop Manager: Finished stopping remotes")
-       (assoc this :remotes nil))
-     this)))
+    [this]
+    (when event-loop
+      ;; It seems wrong
+      (component/stop event-loop))
+    (let [this (assoc this :event-loop nil)]
+      (if remotes
+        (do
+          (doseq [[_name remote] @remotes]
+            ;; Q: Why am I shutting down the event
+            ;; loop before closing its communications pathways?
+            ;; A: Well, maybe there's an advantage to
+            ;; giving them the final opportunity to flush
+            ;; the pipeline, but it probably doesn't matter.
+            (log/debug "Stopping remote " _name
+                       "\nwith keys:" (keys remote)
+                       "\nand auth token: " (:auth-token remote))
+            ;; FIXME: Shouldn't need to do this
+            (component/stop (dissoc remote :auth-token)))
+          (log/debug "Communications Loop Manager: Finished stopping remotes")
+          (assoc this :remotes nil))
+        this))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internals
@@ -125,7 +139,7 @@ the pattern that's emerging looks like a ton of web browsers connecting to
 a web server that uses this library to connect individual users to a slew
 of Server instances.
 "
-    ([this :- CommunicationsLoopManager
+    ([this :- WorldManager
       loop-name :- s/Str
       chan :- com-skm/async-channel
       status-chan :- com-skm/async-channel
@@ -137,7 +151,7 @@ of Server instances.
                     ;; Q: What should this do?
                     (throw (RuntimeException. "not implemented")))]
        (authorize this loop-name chan status-chan f reader writer)))
-    ([this :- CommunicationsLoopManager
+    ([this :- WorldManager
       loop-name :- s/Str
       remote-address :- [s/Int]
       remote-port :- s/Int
@@ -197,6 +211,6 @@ of Server instances.
              (component/stop auth-sock)
              (log/error "No auth-sock. What happened?"))))))))
 
-(s/defn ctor :- CommunicationsLoopManager
+(s/defn ctor :- WorldManager
   [options]
-  (map->CommunicationsLoopManager options))
+  (map->WorldManager (select-keys options [:event-loop])))
