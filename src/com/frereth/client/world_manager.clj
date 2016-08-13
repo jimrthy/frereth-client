@@ -1,4 +1,4 @@
-(ns com.frereth.client.manager
+(ns com.frereth.client.world-manager
   "This is designed to work in concert with the ConnectionManager: that
 establishes an initial connection to a Server, then this takes over to
 do the long-term bulk work.
@@ -7,10 +7,7 @@ Of course, for that to make sense, the ConnectionManager should actually
 make the socket connection, and then this should receive the connected
 socket and manage the individual user sessions.
 
-TODO: that
-
-Smaller TODO: Pick a new name. world-manager and session-manager would
-both be improvements."
+TODO: that"
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]

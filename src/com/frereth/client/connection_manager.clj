@@ -33,7 +33,7 @@ It says nothing about the end-users who are using this connection.
             [clojure.edn :as edn]
             ;; Note that this is really only being used here for schema
             ;; So far. This seems wrong.
-            [com.frereth.client.manager :as manager]
+            [com.frereth.client.world-manager :as manager]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.schema :as fr-skm]
             [com.frereth.common.system :as com-sys]
@@ -45,7 +45,7 @@ It says nothing about the end-users who are using this connection.
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
-           [com.frereth.client.manager CommunicationsLoopManager]
+           [com.frereth.client.world_manager CommunicationsLoopManager]
            [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
            [com.stuartsierra.component SystemMap]
            [java.util Date]))
@@ -378,6 +378,7 @@ TODO: Move to manager
         (send-wait! cb)))))
 
 (s/defn establish-server-connection! :- SystemMap
+  ;;; Really, this starts a common EventLoop with the server
   [client-keys
    server-key
    world-id :- manager/world-id

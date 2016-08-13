@@ -7,14 +7,14 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
             [clojure.core.async :as async]
             [com.frereth.client
              [config :as cfg]
-             [manager]]
+             [world-manager]]
             [com.frereth.common.async-zmq]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-sock]
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]
             [schema.core :as s])
-  (:import [com.frereth.client.manager CommunicationsLoopManager]
+  (:import [com.frereth.client.world_manager CommunicationsLoopManager]
            [com.frereth.common.async_zmq EventPair]
            [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
            [com.stuartsierra.component SystemMap]))
