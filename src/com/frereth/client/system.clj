@@ -39,8 +39,7 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
          local-url {:address "127.0.0.1"
                     :protocol :tcp
                     :port (cfg/auth-port)}
-         ;; TODO: Generate this
-         server-key ""}
+         server-key (curve/z85-decode "8C))+8}}<P[p8%c<j)bpj2aJO5:VCU>DvB@@#LqW")}
     :as overrides}]
   (set! *warn-on-reflection* true)
 
