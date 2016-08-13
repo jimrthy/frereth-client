@@ -3,7 +3,6 @@
   :dependencies [[byte-transforms "0.1.4"]  ;; Q: Does this make sense?
                  [com.frereth/common "0.0.1-SNAPSHOT"]
                  [com.postspectacular/rotor "0.1.0"]
-                 #_[org.clojure/java.classpath "0.2.2"]
                  [org.clojure/tools.logging "0.3.1"]  ; Q: why am I using this?
                  [org.clojure/tools.nrepl "0.2.12"]]
 
@@ -18,12 +17,11 @@
   ;; along with the specific middleware to repl-options
   ;; Q: Why is this in here? It seems pretty profiles-specific.
   ;; Or was I thinking about using this from the server angle?
-  :plugins [[cider/cider-nrepl "0.12.0" :exclusions [org.clojure/java.classpath]]]
+  ;; Note that I've had problems with it at least once now
+  :plugins [[cider/cider-nrepl "0.13.0" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
-                   :dependencies [;; TODO: Should probably go away
-                                  [clj-ns-browser "1.3.1" :exclusions [clojure-complete org.clojure/clojure]]
-                                  [com.cemerick/pomegranate "0.3.1"  :exclusions [org.clojure/clojure
+                   :dependencies [[com.cemerick/pomegranate "0.3.1"  :exclusions [org.clojure/clojure
                                                                                   org.codehaus.plexus/plexus-utils]]
                                   [org.clojure/tools.namespace "0.2.10"]]
                    :global-vars {*warn-on-reflection* true}}}
