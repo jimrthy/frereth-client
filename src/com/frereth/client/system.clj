@@ -3,6 +3,7 @@
 
 TODO: Needs something like slamhound to eliminate unused pieces directly below"
   (:require [cljeromq.core :as mq]
+            [cljeromq.curve :as curve]
             [clojure.core.async :as async]
             [com.frereth.client
              [config :as cfg]
@@ -43,7 +44,7 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
     :as overrides}]
   (set! *warn-on-reflection* true)
 
-  (assert local-auth-url)
+  (assert local-url)
 
   (let [struct '{;; We really need multiple instances of this, one per connected world
                  ;; It's owned by the connection manager

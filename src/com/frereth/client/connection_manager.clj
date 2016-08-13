@@ -45,15 +45,16 @@ It says nothing about the end-users who are using this connection.
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
-           [com.frereth.common.manager.CommunicationsLoopManager]
+           [com.frereth.client.manager CommunicationsLoopManager]
            [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
+           [com.stuartsierra.component SystemMap]
            [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
 (def server-connection-map
-  {zmq/url CommunicationsLoopManager})
+  {mq/zmq-url CommunicationsLoopManager})
 
 ;;;; TODO: None of the schema-defs between here and
 ;;;; the ConnectionManager defrecord belong in here.
