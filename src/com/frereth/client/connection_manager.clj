@@ -54,6 +54,8 @@ It says nothing about the end-users who are using this connection.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
+(def server-id-type manager/generic-id)
+
 (def server-connection-map
   (atom {mq/zmq-url CommunicationsLoopManager}))
 
@@ -107,6 +109,9 @@ It says nothing about the end-users who are using this connection.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internal
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Public
+
 (s/defn establish-server-connection!
   "Possibly alters ConnectionManager with a new world-manager"
   [{:keys [server-connections
@@ -134,14 +139,20 @@ It says nothing about the end-users who are using this connection.
                :server-key "Public, byte array"
                :url  {:address "127.0.0.1"
                       :protocol :tcp
-                      :port (cfg/auth-port)}}
+                      :port 21}}
           baseline (com-sys/build-event-loop descr)
           ]
     (keys baseline))
   )
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Public
+(s/defn connect-to-world! :- manager/renderer-session
+  [this :- ConnectionManager
+   renderer-session-id :- manager/session-id-type
+   server-id :- server-id-type
+   world-id :- manager/world-id]
+  (if-let [world-manager (-> this :server-connections deref (get server-id))]
+    (manager/connect-renderer-to-world! world-manager world-id renderer-session-id)
+    (throw (ex-info "Must call establish-server-connection! first"))))
 
 (s/defn rpc :- (s/maybe fr-skm/async-channel)
   "For plain-ol' asynchronous request/response exchanges
