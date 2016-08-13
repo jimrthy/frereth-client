@@ -25,16 +25,21 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
 ;;; Public
 
 (s/defn init :- SystemMap
-  [{:keys [ctx-thread-count
-           local-auth-url]
-    :or {ctx-thread-count (-> (util/core-count) dec (max 1))
+  [{:keys [client-keys
+           ctx-thread-count
+           local-url
+           server-key]
+    :or {client-keys (curve/new-key-pair)
+         ctx-thread-count (-> (util/core-count) dec (max 1))
          ;; Q: What do I want to do about connecting to external servers?
          ;; Do each of those requests need their own ConnectionManager?
          ;; It seems like a waste for them to bounce through the local
          ;; Server, though that may well have been what I had in mind
-         local-auth-url {:address "127.0.0.1"
-                         :protocol :tcp
-                         :port (cfg/auth-port)}}
+         local-url {:address "127.0.0.1"
+                    :protocol :tcp
+                    :port (cfg/auth-port)}
+         ;; TODO: Generate this
+         server-key ""}
     :as overrides}]
   (set! *warn-on-reflection* true)
 
@@ -53,5 +58,7 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
         depends {:connection-manager {:message-context :ctx}}]
     (cpt-dsl/build {:structure struct
                     :dependencies depends}
-                   {:connection-manager {:local-auth-url local-auth-url}
+                   {:connection-manager {:client-keys client-keys
+                                         :local-url local-url
+                                         :server-key server-key}
                     :ctx {:thread-count ctx-thread-count}})))
