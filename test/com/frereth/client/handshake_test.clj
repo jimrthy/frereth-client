@@ -14,7 +14,7 @@
 (defn mock-up
   []
   (let [descr '{:ctx com.frereth.common.zmq-socket/ctx-ctor
-                :event-loop com.frereth.common.system/build-event-look
+                :event-loop com.frereth.common.system/build-event-loop
                 :mgr com.frereth.client.world-manager/ctor}
         configuration-tree {:ctx {:thread-count 2}
                             :event-loop {:client-keys (curve/new-key-pair)

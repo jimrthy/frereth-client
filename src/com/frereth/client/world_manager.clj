@@ -177,6 +177,14 @@ to forward messages based on the channel where it received them."
                                                          :existing existing-session}))
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
 
+(s/defn disconnect-renderer-from-world!
+  [this :- WorldManager
+   world-id :- world-id-type
+   renderer-session :- session-id-type]
+  (let [existing-session (-> this :remotes (get world-id) (get renderer-session))]
+    (assert existing-session)
+    (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
+
 (s/defn ctor :- WorldManager
   [options]
   (map->WorldManager (select-keys options [:event-loop])))

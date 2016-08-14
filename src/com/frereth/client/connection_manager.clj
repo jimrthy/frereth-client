@@ -158,7 +158,7 @@ It says nothing about the end-users who are using this connection.
   [this :- ConnectionManager
    renderer-session-id :- manager/session-id-type
    server-id :- server-id-type
-   world-id :- manager/world-it-type]
+   world-id :- manager/world-id-type]
   (let [world-manager (-> this :server-connections deref (get server-id))]
     (assert world-manager "Can't disconnect from a world if there's no server-connection")
     ;; It's very tempting to check the world connection count here and disconnect from the
