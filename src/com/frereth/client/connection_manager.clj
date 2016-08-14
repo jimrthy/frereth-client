@@ -21,7 +21,7 @@ with those.
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [joda-time :as dt]
-            [ribol.core :refer (raise)]
+            [hara.event :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]

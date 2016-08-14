@@ -5,7 +5,7 @@
             [com.frereth.client.config :as config]
             [com.stuartsierra.component :as component]
             [plumbing.core :as plumbing]
-            [ribol.core :refer (raise)]
+            [hara.event :refer (raise)]
             [schema.core :as s]
             [taoensso.timbre :as timbre]
             #_[zeromq.zmq :as zmq])
