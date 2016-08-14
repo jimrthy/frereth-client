@@ -47,8 +47,9 @@ do the long-term bulk work.
   "Q: What should the values be here?"
   {com-skm/async-channel renderer-session})
 
+(declare build-dispatcher-loop!)
 (s/defrecord WorldManager [ctrl-chan :- com-skm/async-channel
-                           dispatcher :- com-skm/async/channel
+                           dispatcher :- com-skm/async-channel
                            event-loop :- EventPair
                            remotes :- remote-map-atom]
   component/Lifecycle
@@ -151,7 +152,7 @@ to forward messages based on the channel where it received them."
         (let [channels-from-renderers (remotes->incoming-channels @remotes)
               ;; Q: Is there a more idimatic way to merge vectors?
               [val ch] (async/alts! (vec (concat static-channels channels-from-renderers)))
-              (throw (ex-info "What should happen here?"
+              _ (throw (ex-info "What should happen here?"
                               {:known "I'm sure I need to read from all the channels,
 dispatch appropriately,
 cope with new channels added to list,
@@ -165,7 +166,7 @@ And print a heartbeat notification when timeout closes"}))
                           :else (throw (ex-info "Not Implemented" {:problem "This is where it gets interesting"
                                                                    :source ch
                                                                    :received val})))]
-          (when continue? loop)))
+          (when continue? (recur))))
       (log/warn "Dispatcher loop exiting"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
