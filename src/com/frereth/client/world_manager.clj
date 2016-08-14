@@ -176,22 +176,6 @@ to forward messages based on the channel where it received them."
                                                          :renderer-session-id renderer-session
                                                          :existing existing-session}))
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
-(s/defn master-version-connect-to-world! :- manager/renderer-session
-  ;;; This version appeared during a code merge
-  [this :- ConnectionManager
-   cb :- connection-callback]
-  (throw (ex-info "Anything worth saving?" {}))
-  (log/debug "Incoming AUTH request to respond to:\n" cb)
-  (if-let [current-description (unexpired-auth-description this (:url cb) (:request-id cb))]
-    (do
-      (comment
-        (log/debug "Current Description:\n"
-                   (util/pretty current-description)))
-      (send-auth-descr-response! this cb current-description))
-    (do
-      (log/debug "No [unexpired] auth dialog description. Waiting...")
-      (send-wait! cb))))
-
 
 (s/defn ctor :- WorldManager
   [options]

@@ -5,17 +5,20 @@
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.constants :as mq-k]
             [cljeromq.core :as mq]
+            [cljeromq.curve :as curve]
             [clj-time.core :as dt]
             [clojure.core.async :as async]
             [com.frereth.client.connection-manager :as connection-manager]
             [com.frereth.client.world-manager :as world-manager]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.util :as util]
+            [com.frereth.common.zmq-socket :as zmq-socket]
+            [com.stuartsierra.component :as component]
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
            [com.frereth.client.connection_manager ConnectionManager]
-           [com.frereth.common.zmq_socket SocketDescription]
+           [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
            [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -557,8 +560,8 @@ of Server instances.
                           (dec remaining-attempts) " attempts remaining")
                 (recur (dec remaining-attempts))))))))))
 
-(s/defn establish-connection :- individual-auth-connection
-  [world-id :- manager/world-id
+(s/defn establish-connection :- individual-connection
+  [world-id :- world-manager/world-id-type
    ctx :- ContextWrapper
    url :- mq/zmq-url]
   ;; TODO: Move this into its own Component that the ConnectionManager can depend on
@@ -607,7 +610,28 @@ of Server instances.
                        "Q: Is the server up and running?")]
           (throw (ex-info msg {:internal ex})))))))
 
-(s/defn release-world! :- individual-auth-connection
+(s/defn release-world! :- individual-connection
   "Pretty sure this is totally garbage. But I do need the concept"
-  [world :- individual-auth-connection]
+  [world :- individual-connection]
   (assoc world :auth-sock (component/stop (:auth-sock world))))
+
+(s/defn master-version-connect-to-world! :- world-manager/renderer-session
+  ;;; This version appeared during a code merge.
+  ;;; There's intended functionality overlap w/ world-manager/connect-renderer-to-world!
+  ;;; Which is currently just throwing a not-implemented error.
+  ;;; Q: Is any of this worth trying to save?
+  ;;; A: Not really. But keep it around until I'm ready to clean up
+  ;;; the current code merge.
+  [this :- ConnectionManager
+   cb  :- connection-manager/connection-callback]
+  (throw (ex-info "Anything worth saving?" {}))
+  (log/debug "Incoming AUTH request to respond to:\n" cb)
+  (if-let [current-description (unexpired-auth-description this (:url cb) (:request-id cb))]
+    (do
+      (comment
+        (log/debug "Current Description:\n"
+                   (util/pretty current-description)))
+      (send-auth-descr-response! this cb current-description))
+    (do
+      (log/debug "No [unexpired] auth dialog description. Waiting...")
+      (send-wait! cb))))

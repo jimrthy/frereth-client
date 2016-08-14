@@ -28,7 +28,7 @@ It says nothing about the end-users who are using this connection.
 "
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
-            [cljeromq.curve :as curve]  ; FIXME: Debug only
+            [cljeromq.curve :as curve]  ; FIXME: Debug only (?)
             [clojure.core.async :as async]
             [clojure.edn :as edn]
             ;; Note that this is really only being used here for schema
@@ -40,7 +40,6 @@ It says nothing about the end-users who are using this connection.
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [hara.event :refer (raise)]
-            [joda-time :as dt]
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
