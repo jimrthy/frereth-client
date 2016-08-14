@@ -39,7 +39,8 @@ It says nothing about the end-users who are using this connection.
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
-            [ribol.core :refer (raise)]
+            [hara.event :refer (raise)]
+            [joda-time :as dt]
             [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
@@ -136,8 +137,7 @@ It says nothing about the end-users who are using this connection.
                :url  {:address "127.0.0.1"
                       :protocol :tcp
                       :port 21}}
-          baseline (com-sys/build-event-loop descr)
-          ]
+          baseline (com-sys/build-event-loop descr)]
     (keys baseline))
   )
 
@@ -149,6 +149,9 @@ It says nothing about the end-users who are using this connection.
   (if-let [world-manager (-> this :server-connections deref (get server-id))]
     (manager/connect-renderer-to-world! world-manager world-id renderer-session-id)
     (throw (ex-info "Must call establish-server-connection! first"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Public
 
 (s/defn rpc :- (s/maybe fr-skm/async-channel)
   "For plain-ol' asynchronous request/response exchanges

@@ -8,9 +8,8 @@
 ;; Schema
 
 (s/defrecord REPL [port :- s/Int
-                    stopper :- (s/make-fn-schema s/Bool [[]])]
+                   stopper :- (s/make-fn-schema s/Bool [[]])]
   component/Lifecycle
-
   (start
     [this]
     (assoc this stopper

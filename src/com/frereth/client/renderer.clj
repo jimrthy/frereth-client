@@ -5,7 +5,7 @@
             [cljeromq.core :as mq]
             [com.frereth.client.config :as config]
             [com.frereth.client.translator :as trnsltr]
-            [ribol.core :refer :all]
+            [hara.event :refer (raise)]
             [taoensso.timbre :as timbre]))
 
 (comment (defn renderer-heartbeats
