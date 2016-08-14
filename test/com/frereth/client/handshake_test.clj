@@ -61,7 +61,10 @@
   (testing "Can start, fake connections, and stop"
     (println "Top of bogus-auth. Thread count: " (util/thread-count))
     (let [system (component/start (mock-up))]
-      (mgr/connect-renderer-to-world! (:mgr system))
+      (mgr/connect-renderer-to-world! (:mgr system)
+                                      "What are world IDs, really?"
+                                      ;; More important: what does a renderer-session look like?
+                                      {})
       (throw (ex-info "Start here" {}))
       ;; Q: Is there any point to anything else in this let block?
       (let [in->out (async/chan)
@@ -73,12 +76,14 @@
                                               :protocol :inproc}}))
             loop-name "start/stop"
             pre-event-thread-count (util/thread-count)
-            event-loop (mgr/authorize (:mgr system)
-                                      loop-name
-                                      (:fake-auth system)
-                                      in->out
-                                      status-requester
-                                      fake-auth)]
+            ;; This is really pretty obsolete.
+            ;; The only real question is: how much of what's left isn't?
+            event-loop (comment (mgr/authorize (:mgr system)
+                                               loop-name
+                                               (:fake-auth system)
+                                               in->out
+                                               status-requester
+                                               fake-auth))]
         (println "After starting System, running " pre-event-thread-count "threads."
                  "After starting the EventPair, have" (util/thread-count))
         (try
