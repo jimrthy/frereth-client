@@ -7,6 +7,7 @@ do the long-term bulk work.
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]
             [clojure.core.async :as async]
+            [com.frereth.client.dispatcher :as dispatcher]
             [com.frereth.common.async-zmq]
             [com.frereth.common.system :as sys]
             [com.frereth.common.schema :as com-skm]
@@ -51,6 +52,7 @@ do the long-term bulk work.
 (s/defrecord WorldManager [ctrl-chan :- com-skm/async-channel
                            dispatcher :- com-skm/async-channel
                            event-loop :- EventPair
+                           remote-mix :- com-skm/async-channel
                            remotes :- remote-map-atom]
   component/Lifecycle
   (start
@@ -59,15 +61,17 @@ do the long-term bulk work.
     ;; starting/stopping.
     ;; This is an advantage of hara.event.
     ;; Q: Is this a feature that's worth adding to component-dsl?
-    (let [this (assoc this
+    (let [underlying-mixer (async/chan)  ; Trust this to get GC'd w/ remote-mix
+          this (assoc this
                       :event-loop (component/start event-loop)
-                      :ctrl-chan (async/chan))
+                      :ctrl-chan (async/chan)
+                      :remote-mix (async/mix underlying-mixer))
           sans-dispatcher (if-not remotes
                             (assoc this :remotes (atom {}))
                             this)]
-      ;; Q: If/when this turns into a bottleneck, will I gain any performance benefits
-      ;; by expanding to multiple instances/go-loop threads?
-      ;; TODO: Figure out some way to benchmark this
+          ;; Q: If/when this turns into a bottleneck, will I gain any performance benefits
+          ;; by expanding to multiple instances/go-loop threads?
+          ;; TODO: Figure out some way to benchmark this
       (assoc sans-dispatcher :dispatcher (build-dispatcher-loop! this))))
   (stop
     [this]
@@ -76,11 +80,14 @@ do the long-term bulk work.
     (when ctrl-chan
       ;; Note that this signals the dispatcher loop to close
       (async/close! ctrl-chan))
+    (when remote-mix
+      (async/close! remote-mix))
 
     (let [this (assoc this
                       :ctrl-chan nil
                       :dispatcher nil
-                      :event-loop nil)]
+                      :event-loop nil
+                      :remote-mix nil)]
       (if remotes
         (do
           (doseq [[_name remote] @remotes]
@@ -97,6 +104,11 @@ do the long-term bulk work.
           (log/debug "Communications Loop Manager: Finished stopping remotes")
           (assoc this :remotes nil))
         this))))
+
+(defmulti do-ctrl-msg-dispatch!
+  "This is the internal dispatch mechanism for handling control messages"
+  (fn [this msg]
+    (:command msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internals
@@ -122,52 +134,35 @@ to forward messages based on the channel where it received them."
   [remotes :- remote-map]
   (reduce reduce-remote-map->incoming-channels remotes))
 
+(defmethod do-ctrl-msg-dispatch! :default
+  [_ msg]
+  (throw (ex-info "Not Implemented" {:unhandled msg})))
+
 (s/defn dispatch-control-message! :- s/Bool
   [msg]
   ;; If the control message is nil, the channel closed.
   ;; Which is the signal to exit
   (when msg
-    (throw (ex-info "Not Implemented" {:unhandled msg}))))
-
-(s/defn dispatch-server-message! :- s/Bool
-  [remotes
-   channel
-   message]
-  (throw (ex-info "Not Implemented" {:source channel
-                                     :remotes remotes
-                                     :message message})))
+    (do-ctrl-msg-dispatch! msg)))
 
 (s/defn build-dispatcher-loop! :- com-skm/async-channel
   ;;; Q: Do I have enough variations on this theme yet to make it more generic?
   [{:keys [ctrl-chan
            event-loop
-           remotes]
+           remote-mix]
     :as this} :- WorldManager]
-  (let [server-chan (-> event-loop :ex-chan :ch)
-        static-channels [ctrl-chan server-chan]]
-    (async/go
-      (loop []
-        ;; This part needs to happen inside the loop so I can pick up on connection
-        ;; changes
-        (let [channels-from-renderers (remotes->incoming-channels @remotes)
-              ;; Q: Is there a more idimatic way to merge vectors?
-              [val ch] (async/alts! (vec (concat static-channels channels-from-renderers)))
-              _ (throw (ex-info "What should happen here?"
-                              {:known "I'm sure I need to read from all the channels,
-dispatch appropriately,
-cope with new channels added to list,
-(need to notify this loop via ctrl-chan when that happens),
-and exit when ctrl-chan closes.
-
-And print a heartbeat notification when timeout closes"}))
-              continue? (cond
-                          (= ctrl-chan) (dispatch-control-message! val)
-                          (= server-chan) (dispatch-server-message! channels-from-renderers ch val)
-                          :else (throw (ex-info "Not Implemented" {:problem "This is where it gets interesting"
+  (let [server-> (-> event-loop :ex-chan :ch)]
+    (let [dispatch-thread
+          (async/go
+            (loop [[val ch] (async/alts! [ctrl-chan server-> remote-mix])]
+              (let [continue? (condp = ch
+                                ctrl-chan (dispatch-control-message! this val)
+                                server-> (dispatcher/server-> this val)
+                                (throw (ex-info "Not Implemented" {:problem "This is where it gets interesting"
                                                                    :source ch
                                                                    :received val})))]
-          (when continue? (recur))))
-      (log/warn "Dispatcher loop exiting"))))
+                (when continue? (recur (async/alts! [ctrl-chan server-> remote-mix])))))
+            (log/warn "Dispatcher loop exiting"))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
