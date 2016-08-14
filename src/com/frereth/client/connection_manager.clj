@@ -149,8 +149,23 @@ It says nothing about the end-users who are using this connection.
     (manager/connect-renderer-to-world! world-manager world-id renderer-session-id)
     (throw (ex-info "Must call establish-server-connection! first"))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Public
+(s/defn disconnect-from-server!
+  [this :- ConnectionManager
+   server-id :- server-id-type]
+  (throw (ex-info "Not Implemented" {})))
+
+(s/defn disconnect-from-world!
+  [this :- ConnectionManager
+   renderer-session-id :- manager/session-id-type
+   server-id :- server-id-type
+   world-id :- manager/world-it-type]
+  (let [world-manager (-> this :server-connections deref (get server-id))]
+    (assert world-manager "Can't disconnect from a world if there's no server-connection")
+    ;; It's very tempting to check the world connection count here and disconnect from the
+    ;; server if/when it drops to 0.
+    ;; But that's a higher-level consideration that needs to be handled by whatever called this.
+    ;; TODO: Get that written
+    (manager/disconnect-renderer-from-world! world-manager world-id renderer-session-id)))
 
 (s/defn rpc :- (s/maybe fr-skm/async-channel)
   "For plain-ol' asynchronous request/response exchanges

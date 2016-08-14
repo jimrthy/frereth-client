@@ -348,66 +348,7 @@ TODO: Switch to that"
           (when (not (realized? done))
             (log/debug "AUTH looping")
             (recur (minutes-5))))
-        (log/warn "ConnectionManager's auth-loop exited"))))
-  (s/defn master-version-auth-loop-creator :- fr-skm/async-channel
-  "Set up the auth loop
-This is just an async-zmq/EventPair.
-Actually, this is just an async/pipeline-async transducer.
-TODO: Switch to that"
-  [{:keys [auth-request auth-sock status-check]
-    :as this} :- ConnectionManager]
-    (throw (ex-info "Merge w/ auth-loop-creator above"
-                    {:why "Hypothetically, there might be something worth saving in the diffs"}))
-  (let [minutes-5 (partial async/timeout (* 5 (util/minute)))
-        done (promise)
-        interesting-channels [auth-request status-check]]
-    ;; It seems almost wasteful to start this before there's any
-    ;; interest to express. But the 90% (at least) use case is for
-    ;; the local server where there won't ever be any reason
-    ;; for it to timeout.
-    (request-auth-descr! auth-sock)
-    (async/go
-      (loop [t-o (minutes-5)]
-        (try
-          ;; TODO: Really need a ribol manager in here to distinguish
-          ;; between the "stop-iteration" signal and actual errors
-          (let [[v c] (async/alts! (conj interesting-channels t-o))]
-            ;; Right here, we have :url, :request-id, and the response channel in :respond
-            (log/debug "Incoming to AUTH loop:\n'"
-                       v "' -- a " (class v)
-                       "\non\n" c)
-            (if (not= t-o c)
-              (if v
-                (if (= auth-request c)
-                  (dispatch-auth-response! this v)
-                  (do
-                    (assert (= status-check c))
-                    ;; TODO: This absolutely needs to be an offer
-                    ;; TODO: Add error handling. Don't want someone to
-                    ;; break this loop by submitting, say, a keyword
-                    ;; instead of a channel
-                    (async/>! v "I'm alive")))
-                (do
-                  (log/warn "Incoming channel closed. Exiting AUTH loop")
-                  (deliver done true)))
-              (log/debug "AUTH loop heartbeat")))
-          (catch RuntimeException ex
-            (log/error ex "Dispatching an auth request.\nThis should probably be fatal for dev time.")
-            (let [dialog-description-atom (:dialog-description this)
-                  dialog-description (if dialog-description-atom
-                                       (deref dialog-description-atom)
-                                       "missing atom")
-                  msg {:problem ex
-                       :component this
-                       :details {:dialog-description dialog-description
-                                 :auth-request auth-request
-                                 :time-out t-o}}]
-              (comment (raise msg))
-              (log/warn msg "\nI'm tired of being forced to (reset) every time I have a glitch"))))
-        (when (not (realized? done))
-          (log/debug "AUTH looping")
-          (recur (minutes-5))))
-      (log/warn "ConnectionManager's auth-loop exited")))))
+        (log/warn "ConnectionManager's auth-loop exited")))))
 
 (comment
   (s/defn authorize-obsolete :- EventPair
@@ -609,29 +550,3 @@ of Server instances.
         (let [msg (str "Client failed to refresh auth requirements from server\n"
                        "Q: Is the server up and running?")]
           (throw (ex-info msg {:internal ex})))))))
-
-(s/defn release-world! :- individual-connection
-  "Pretty sure this is totally garbage. But I do need the concept"
-  [world :- individual-connection]
-  (assoc world :auth-sock (component/stop (:auth-sock world))))
-
-(s/defn master-version-connect-to-world! :- world-manager/renderer-session
-  ;;; This version appeared during a code merge.
-  ;;; There's intended functionality overlap w/ world-manager/connect-renderer-to-world!
-  ;;; Which is currently just throwing a not-implemented error.
-  ;;; Q: Is any of this worth trying to save?
-  ;;; A: Not really. But keep it around until I'm ready to clean up
-  ;;; the current code merge.
-  [this :- ConnectionManager
-   cb  :- connection-manager/connection-callback]
-  (throw (ex-info "Anything worth saving?" {}))
-  (log/debug "Incoming AUTH request to respond to:\n" cb)
-  (if-let [current-description (unexpired-auth-description this (:url cb) (:request-id cb))]
-    (do
-      (comment
-        (log/debug "Current Description:\n"
-                   (util/pretty current-description)))
-      (send-auth-descr-response! this cb current-description))
-    (do
-      (log/debug "No [unexpired] auth dialog description. Waiting...")
-      (send-wait! cb))))
