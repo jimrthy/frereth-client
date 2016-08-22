@@ -1,4 +1,7 @@
 (ns com.frereth.client.handshake-test
+  "Realistically, need to rewrite this
+  To use dispatcher instead.
+  Well, this is really for testing the ConnectionManager part."
   (:require [cljeromq.core :as mq]
             [cljeromq.curve :as curve]
             [clojure.core.async :as async]
@@ -27,7 +30,7 @@
                                                :address (name (gensym))}
 
                                          }}
-        dependencies {:event-loop [:ctx]
+        dependencies {:event-loop {:context :ctx}
                       :mgr [:event-loop]}]
     (cpt-dsl/build {:structure descr
                     :dependencies dependencies}

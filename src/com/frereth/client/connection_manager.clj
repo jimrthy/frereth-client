@@ -40,12 +40,11 @@ It says nothing about the end-users who are using this connection.
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [hara.event :refer (raise)]
-            [schema.core :as s]
+            [schema.core :as s2]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
            [com.frereth.client.world_manager WorldManager]
-           [com.frereth.common.zmq_socket ContextWrapper]
-           [com.stuartsierra.component SystemMap]))
+           [com.frereth.common.zmq_socket ContextWrapper]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -56,7 +55,7 @@ It says nothing about the end-users who are using this connection.
   (atom {mq/zmq-url WorldManager}))
 
 (declare establish-server-connection!)
-(s/defrecord ConnectionManager
+(s2/defrecord ConnectionManager
     [client-keys :- curve/key-pair
      local-url :- mq/zmq-url
      message-context :- ContextWrapper
@@ -108,7 +107,7 @@ It says nothing about the end-users who are using this connection.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
-(s/defn establish-server-connection!
+(s2/defn establish-server-connection!
   "Possibly alters ConnectionManager with a new world-manager"
   [{:keys [server-connections
            client-keys
@@ -118,15 +117,20 @@ It says nothing about the end-users who are using this connection.
    {:keys [server-id :- manager/world-id-type
            url :- mq/zmq-url]}]
   (when-not (-> server-connections deref (get server-id))
-    (let [descr {:client-keys client-keys
-                 :context ctx
-                 :event-loop-name server-id
-                 :server-key server-key
-                 :url url}
-          ;; The world-manager takes responsibility for starting/stopping
-          event-loop (com-sys/build-event-loop descr)
-          world-manager (manager/ctor {:event-loop event-loop})]
-      (swap! server-connections #(assoc % server-id (component/start world-manager))))))
+    (let [event-loop-params {:client-keys client-keys
+                             :context ctx
+                             :event-loop-name server-id
+                             :server-key server-key
+                             :url url}
+          event-loop-description-wrapper (com-sys/build-event-loop-description event-loop-params)
+          event-loop-description (:description event-loop-description-wrapper)
+          event-loop-structure (:structure event-loop-description)
+          system-description {:structure (assoc event-loop-structure
+                                                ;; Q: What about the :dispatcher?
+                                                :world-manager 'com.frereth.client.world-manager/ctor)
+                              :dependencies (assoc (:dependencies event-loop-description)
+                                                   :world-manager [:event-loop])}]
+      (swap! server-connections #(assoc % server-id (component/start system-description))))))
 
 (comment
   (let [descr {:client-keys (curve/new-key-pair)
@@ -140,7 +144,7 @@ It says nothing about the end-users who are using this connection.
     (keys baseline))
   )
 
-(s/defn connect-to-world! :- manager/renderer-session
+(s2/defn connect-to-world! :- manager/renderer-session
   [this :- ConnectionManager
    renderer-session-id :- manager/session-id-type
    server-id :- server-id-type
@@ -149,12 +153,12 @@ It says nothing about the end-users who are using this connection.
     (manager/connect-renderer-to-world! world-manager world-id renderer-session-id)
     (throw (ex-info "Must call establish-server-connection! first"))))
 
-(s/defn disconnect-from-server!
+(s2/defn disconnect-from-server!
   [this :- ConnectionManager
    server-id :- server-id-type]
   (throw (ex-info "Not Implemented" {})))
 
-(s/defn disconnect-from-world!
+(s2/defn disconnect-from-world!
   [this :- ConnectionManager
    renderer-session-id :- manager/session-id-type
    server-id :- server-id-type
@@ -167,15 +171,15 @@ It says nothing about the end-users who are using this connection.
     ;; TODO: Get that written
     (manager/disconnect-renderer-from-world! world-manager world-id renderer-session-id)))
 
-(s/defn rpc :- (s/maybe fr-skm/async-channel)
+(s2/defn rpc :- (s2/maybe fr-skm/async-channel)
   "For plain-ol' asynchronous request/response exchanges
 
 TODO: This seems generally useful and probably belongs in common instead"
   ([this :- ConnectionManager
     world-id :- manager/world-id-type
-    method :- s/Keyword
-    data :- s/Any
-    timeout-ms :- s/Int]
+    method :- s2/Keyword
+    data :- s2/Any
+    timeout-ms :- s2/Int]
    ;; At this point, we've really moved beyond the original scope of this
    ;; namespace.
    ;; It's getting into real client-server interaction.
@@ -205,17 +209,17 @@ TODO: This seems generally useful and probably belongs in common instead"
          (raise :timeout {})))))
   ([this :- ConnectionManager
     request-id :- manager/world-id-type
-    method :- s/Keyword
-    data :- s/Any]
+    method :- s2/Keyword
+    data :- s2/Any]
    (rpc this request-id method data (* 5 util/seconds))))
 
-(s/defn rpc-sync
+(s2/defn rpc-sync
   "True synchronous Request/Reply"
   ([this :- ConnectionManager
     request-id :- manager/world-id-type
-    method :- s/Keyword
-    data :- s/Any
-    timeout :- s/Int]
+    method :- s2/Keyword
+    data :- s2/Any
+    timeout :- s2/Int]
    (log/debug "Synchronous RPC:\n(" method data ")")
    (let [responder (rpc this request-id method data timeout)
          [result ch] (async/alts!! [responder (async/timeout timeout)])]
@@ -232,8 +236,8 @@ TODO: This seems generally useful and probably belongs in common instead"
      result))
   ([this :- ConnectionManager
     request-id :- manager/world-id-type
-    method :- s/Keyword
-    data :- s/Any]
+    method :- s2/Keyword
+    data :- s2/Any]
    (rpc-sync this request-id method data (* 5 (util/seconds)))))
 
 (comment
@@ -278,6 +282,6 @@ TODO: This seems generally useful and probably belongs in common instead"
 
 )
 
-(s/defn ctor :- ConnectionManager
+(s2/defn ctor :- ConnectionManager
   [{:keys [client-keys local-auth-url server-key]}]
   (map->ConnectionManager {:local-auth-url local-auth-url}))
