@@ -15,10 +15,11 @@ do the long-term bulk work.
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]
-            [schema.core :as s]
+            [schema.core :as s2]
             [taoensso.timbre :as log])
   (:import [com.frereth.common.async_zmq EventPair]
-           [com.frereth.common.zmq_socket SocketDescription]))
+           [com.frereth.common.zmq_socket SocketDescription]
+           [com.stuartsierra.component SystemMap]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -29,7 +30,7 @@ do the long-term bulk work.
 ;; Q: What's the issue? (aside from the fact that it's experimental)
 ;; TODO: Ask on the mailing list
 (def generic-id
-  (s/cond-pre s/Keyword s/Str s/Uuid))
+  (s2/cond-pre s2/Keyword s2/Str s2/Uuid))
 
 ;; TODO: Refactor/rename this to world-identifier
 ;; Or maybe world-id-type
@@ -49,11 +50,11 @@ do the long-term bulk work.
   {com-skm/async-channel renderer-session})
 
 (declare build-dispatcher-loop!)
-(s/defrecord WorldManager [ctrl-chan :- com-skm/async-channel
-                           dispatcher :- com-skm/async-channel
-                           event-loop :- EventPair
-                           remote-mix :- com-skm/async-channel
-                           remotes :- remote-map-atom]
+(s2/defrecord WorldManager [ctrl-chan :- com-skm/async-channel
+                            dispatcher :- com-skm/async-channel
+                            event-loop :- EventPair
+                            remote-mix :- com-skm/async-channel
+                            remotes :- remote-map-atom]
   component/Lifecycle
   (start
     [this]
@@ -113,7 +114,7 @@ do the long-term bulk work.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internals
 
-(s/defn reduce-remote-map->incoming-channels
+(s2/defn reduce-remote-map->incoming-channels
   "Really just a helper function for remotes->incoming-channels
 
 Should probably just define it inline, but it isn't quite that short/sweet.
@@ -130,7 +131,7 @@ to forward messages based on the channel where it received them."
                     (assoc acc1 ->server renderer-session)))
                 session-map)))
 
-(s/defn remotes->incoming-channels :- session-channel-map
+(s2/defn remotes->incoming-channels :- session-channel-map
   [remotes :- remote-map]
   (reduce reduce-remote-map->incoming-channels remotes))
 
@@ -138,14 +139,14 @@ to forward messages based on the channel where it received them."
   [_ msg]
   (throw (ex-info "Not Implemented" {:unhandled msg})))
 
-(s/defn dispatch-control-message! :- s/Bool
+(s2/defn dispatch-control-message! :- s2/Bool
   [msg]
   ;; If the control message is nil, the channel closed.
   ;; Which is the signal to exit
   (when msg
     (do-ctrl-msg-dispatch! msg)))
 
-(s/defn build-dispatcher-loop! :- com-skm/async-channel
+(s2/defn build-dispatcher-loop! :- com-skm/async-channel
   ;;; Q: Do I have enough variations on this theme yet to make it more generic?
   [{:keys [ctrl-chan
            event-loop
@@ -167,7 +168,7 @@ to forward messages based on the channel where it received them."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
-(s/defn connect-renderer-to-world! :- renderer-session
+(s2/defn connect-renderer-to-world! :- renderer-session
   [this :- WorldManager
    world-id :- world-id-type
    renderer-session :- session-id-type]
@@ -175,9 +176,12 @@ to forward messages based on the channel where it received them."
     (throw (ex-info "Attempting to duplicate a session" {:world-id world-id
                                                          :renderer-session-id renderer-session
                                                          :existing existing-session}))
+    ;; Needs to start by exchanging a handshake with the server to establish
+    ;; the "best" protocol available on both sides.
+    ;; Actually, that belongs in the Dispatcher.
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
 
-(s/defn disconnect-renderer-from-world!
+(s2/defn disconnect-renderer-from-world!
   [this :- WorldManager
    world-id :- world-id-type
    renderer-session :- session-id-type]
@@ -185,6 +189,6 @@ to forward messages based on the channel where it received them."
     (assert existing-session)
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
 
-(s/defn ctor :- WorldManager
+(s2/defn ctor :- WorldManager
   [options]
-  (map->WorldManager (select-keys options [:event-loop])))
+  (map->WorldManager options))
