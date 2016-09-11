@@ -7,6 +7,7 @@ do the long-term bulk work.
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]
             [clojure.core.async :as async]
+            [clojure.spec :as s]
             [com.frereth.client.dispatcher :as dispatcher]
             [com.frereth.common.async-zmq]
             [com.frereth.common.system :as sys]
@@ -15,7 +16,6 @@ do the long-term bulk work.
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]
-            [schema.core :as s2]
             [taoensso.timbre :as log])
   (:import [com.frereth.common.async_zmq EventPair]
            [com.frereth.common.zmq_socket SocketDescription]
@@ -24,37 +24,131 @@ do the long-term bulk work.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
 
-;; TODO: Move this into common
-;; Note that, currently, it's copy/pasted into web's frereth.globals.cljs
-;; And it doesn't work
-;; Q: What's the issue? (aside from the fact that it's experimental)
-;; TODO: Ask on the mailing list
-(def generic-id
-  (s2/cond-pre s2/Keyword s2/Str s2/Uuid))
+(s/def ::world-id-type :com.frereth.common.schema/generic-id)
 
-;; TODO: Refactor/rename this to world-identifier
-;; Or maybe world-id-type
-(def world-id-type generic-id)
+(s/def ::session-id-type :com.frereth.common.schema/generic-id)
 
-(def session-id-type generic-id)
-(def renderer-session {:channels {:->renderer com-skm/async-channel
-                                  :->server com-skm/async-channel}})
+(s/def ::->renderer :com.frereth.common.schema/async-channel)
+(s/def ::->server :com.frereth.common.schema/async-channel)
+(s/def ::channels (s/keys :req [::->renderer ::->server] ))
+(s/def ::renderer-session (s/keys :req [::channels]))
 
-(def remote-map
-  {world-id-type {session-id-type renderer-session}})
-(def remote-map-atom
-  "Can't really define/test this using schema. Still seems useful for documentation"
-  (class (atom remote-map)))
-(def session-channel-map
-  "Q: What should the values be here?"
-  {com-skm/async-channel renderer-session})
+(s/def ::session-map (s/map-of ::session-id-type ::renderer-session))
+(s/def ::remote-map (s/map-of ::world-id-type ::session-map))
 
-(declare build-dispatcher-loop!)
-(s2/defrecord WorldManager [ctrl-chan :- com-skm/async-channel
-                            dispatcher :- com-skm/async-channel
-                            event-loop :- EventPair
-                            remote-mix :- com-skm/async-channel
-                            remotes :- remote-map-atom]
+;; Q: What are the odds this will actually work?
+(s/def ::remote-map-atom (s/and deref
+                                ::remote-map))
+
+(s/def ::session-channel-map (s/map-of :com.frereth.common.schema/async-channel
+                                       ::renderer-session))
+
+(s/def ::command #{})
+(s/def ::control-message (s/keys :req [::command]))
+
+(s/def ::ctrl-chan :com.frereth.common.schema/async-channel)
+(s/def ::dispatcher :com.frereth.common.schema/async-channel)
+(s/def ::event-loop :com.frereth.common.async-zmq/event-pair)
+(s/def ::remote-mix :com.frereth.common.schema/async-channel)
+(s/def ::remotes ::remote-map-atom)
+
+;; Q: How can I avoid the copy/paste here?
+(s/def ::world-manager (s/keys :req-un [::ctrl-chan
+                                        ::dispatcher
+                                        ::event-loop
+                                        ::remote-mix
+                                        ::remotes]))
+(s/def ::world-manager-ctor-opts (s/keys :opt-un [::ctrl-chan
+                                                  ::dispatcher
+                                                  ::event-loop
+                                                  ::remote-mix
+                                                  ::remotes]))
+
+(defmulti do-ctrl-msg-dispatch!
+  "This is the internal dispatch mechanism for handling control messages"
+  (fn [this msg]
+    ;; TODO: This really should be namespaced
+    (::command msg)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Internals
+
+(s/fdef reduce-remote-map->incoming-channels
+        :args (s/cat :acc ::session-channel-map
+                     :val (s/cat :world-id ::world-id
+                                 :session-map ::session-map))
+        :ret ::session-channel-map)
+(defn reduce-remote-map->incoming-channels
+  "Really just a helper function for remotes->incoming-channels
+
+Should probably just define it inline, but it isn't quite that short/sweet.
+And I can see it growing once I figure out what it should actually be returning.
+
+The fundamental point is that the dispatcher needs a fast way to decide where
+to forward messages based on the channel where it received them."
+  [acc [world-id session-map]]
+  (into acc
+        (reduce (fn [acc1 [session-id renderer-session]]
+                  (let [->server (-> renderer-session ::channels ::->server)]
+                    ;; Make sure we don't wind up with duplicates
+                    (assert (nil? (get acc1 ->server)))
+                    (assoc acc1 ->server renderer-session)))
+                session-map)))
+
+(s/fdef remotes->incoming-channels
+        :args (s/cat :remotes ::remote-map)
+        :ret ::session-channel-map)
+(defn remotes->incoming-channels
+  [remotes]
+  (reduce reduce-remote-map->incoming-channels remotes))
+
+(defmethod do-ctrl-msg-dispatch! :default
+  [_ msg]
+  ;; TODO: Need to implement these
+  (throw (ex-info "Not Implemented" {:unhandled msg})))
+
+(s/fdef dispatch-control-message!
+        :args (s/cat :this ::world-manager
+                     :msg ::control-message)
+        :ret boolean?)
+(defn dispatch-control-message!
+  [this msg]
+  ;; If the control message is nil, the channel closed.
+  ;; Which is the signal to exit
+  (when msg
+    (do-ctrl-msg-dispatch! this msg)))
+
+(s/fdef build-dispatcher-loop!
+        :args (s/cat :this ::world-manager)
+        :ret ::dispatcher)
+(defn build-dispatcher-loop!
+  ;;; Q: Do I have enough variations on this theme yet for genericizing to be worthwhile?
+  [{:keys [ctrl-chan
+           event-loop
+           remote-mix]
+    :as this}]
+  (let [server-> (-> event-loop :ex-chan :ch)]
+    (let [dispatch-thread
+          (async/go
+            (loop [[val ch] (async/alts! [ctrl-chan server-> remote-mix])]
+              (let [continue? (condp = ch
+                                ctrl-chan (dispatch-control-message! this val)
+                                server-> (dispatcher/server-> this val)
+                                (throw (ex-info "Not Implemented" {:problem "This is where it gets interesting"
+                                                                   :source ch
+                                                                   :received val})))]
+                (when continue? (recur (async/alts! [ctrl-chan server-> remote-mix])))))
+            (log/warn "Dispatcher loop exiting"))])))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Components
+
+(defrecord WorldManager [ctrl-chan
+                         dispatcher
+                         event-loop
+                         remote-mix
+                         remotes]
   component/Lifecycle
   (start
     [this]
@@ -106,72 +200,18 @@ do the long-term bulk work.
           (assoc this :remotes nil))
         this))))
 
-(defmulti do-ctrl-msg-dispatch!
-  "This is the internal dispatch mechanism for handling control messages"
-  (fn [this msg]
-    (:command msg)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Internals
-
-(s2/defn reduce-remote-map->incoming-channels
-  "Really just a helper function for remotes->incoming-channels
-
-Should probably just define it inline, but it isn't quite that short/sweet.
-And I can see it growing once I figure out what it should actually be returning.
-
-The fundamental point is that the dispatcher needs a fast way to decide where
-to forward messages based on the channel where it received them."
-  [acc [world-id session-map]]
-  (into acc
-        (reduce (fn [acc1 [session-id renderer-session]]
-                  (let [->server (-> renderer-session :channels :->server)]
-                    ;; Make sure we don't wind up with duplicates
-                    (assert (nil? (get acc1 ->server)))
-                    (assoc acc1 ->server renderer-session)))
-                session-map)))
-
-(s2/defn remotes->incoming-channels :- session-channel-map
-  [remotes :- remote-map]
-  (reduce reduce-remote-map->incoming-channels remotes))
-
-(defmethod do-ctrl-msg-dispatch! :default
-  [_ msg]
-  (throw (ex-info "Not Implemented" {:unhandled msg})))
-
-(s2/defn dispatch-control-message! :- s2/Bool
-  [msg]
-  ;; If the control message is nil, the channel closed.
-  ;; Which is the signal to exit
-  (when msg
-    (do-ctrl-msg-dispatch! msg)))
-
-(s2/defn build-dispatcher-loop! :- com-skm/async-channel
-  ;;; Q: Do I have enough variations on this theme yet to make it more generic?
-  [{:keys [ctrl-chan
-           event-loop
-           remote-mix]
-    :as this} :- WorldManager]
-  (let [server-> (-> event-loop :ex-chan :ch)]
-    (let [dispatch-thread
-          (async/go
-            (loop [[val ch] (async/alts! [ctrl-chan server-> remote-mix])]
-              (let [continue? (condp = ch
-                                ctrl-chan (dispatch-control-message! this val)
-                                server-> (dispatcher/server-> this val)
-                                (throw (ex-info "Not Implemented" {:problem "This is where it gets interesting"
-                                                                   :source ch
-                                                                   :received val})))]
-                (when continue? (recur (async/alts! [ctrl-chan server-> remote-mix])))))
-            (log/warn "Dispatcher loop exiting"))])))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
-(s2/defn connect-renderer-to-world! :- renderer-session
-  [this :- WorldManager
-   world-id :- world-id-type
-   renderer-session :- session-id-type]
+(s/fdef connect-renderer-to-world!
+        :args (s/cat :this ::world-manager
+                     :world-id ::world-id-type
+                     :renderer-session ::session-id-type)
+        :ret ::renderer-session)
+(defn connect-renderer-to-world!
+  [this
+   world-id
+   renderer-session]
   (if-let [existing-session (-> this :remotes (get world-id) (get renderer-session))]
     (throw (ex-info "Attempting to duplicate a session" {:world-id world-id
                                                          :renderer-session-id renderer-session
@@ -181,14 +221,21 @@ to forward messages based on the channel where it received them."
     ;; Actually, that belongs in the Dispatcher.
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
 
-(s2/defn disconnect-renderer-from-world!
-  [this :- WorldManager
-   world-id :- world-id-type
-   renderer-session :- session-id-type]
+(s/fdef disconnect-renderer-from-world!
+        :args (s/cat :this ::world-manager
+                     :world-id ::world-id-type
+                     ::renderer-session ::session-id-type))
+(defn disconnect-renderer-from-world!
+  [this
+   world-id
+   renderer-session]
   (let [existing-session (-> this :remotes (get world-id) (get renderer-session))]
     (assert existing-session)
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
 
-(s2/defn ctor :- WorldManager
+(s/fdef ctor
+        :args (s/cat :options ::world-manager-ctor-opts)
+        :ret ::world-manager)
+(defn ctor
   [options]
   (map->WorldManager options))

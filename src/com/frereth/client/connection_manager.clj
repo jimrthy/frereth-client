@@ -40,6 +40,8 @@ It says nothing about the end-users who are using this connection.
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
             [hara.event :refer (raise)]
+            ;; This is gone.
+            ;; FIXME: Start here
             [schema.core :as s2]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
