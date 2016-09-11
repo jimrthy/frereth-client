@@ -2,9 +2,10 @@
   (:require [cljeromq.core :as mq]
             [clojure.core.async :as async]
             [clojure.java.io :as io]
-            [clojure.string :as str]
+            [clojure.string :as string]
             [clojure.pprint :refer (pprint)]
             [clojure.repl :refer :all]
+            [clojure.spec :as s]
             [clojure.test :as test]
             [clojure.tools.namespace.repl :refer (refresh refresh-all)]
             ;; Q: Do I want something like this or spyscope?
@@ -12,8 +13,7 @@
             [com.frereth.client.connection-manager :as con-man]
             [com.frereth.client.system :as system]
             [com.frereth.common.util :as util]
-            [com.stuartsierra.component :as component]
-            [schema.core :as s]))
+            [com.stuartsierra.component :as component]))
 
 (def system nil)
 

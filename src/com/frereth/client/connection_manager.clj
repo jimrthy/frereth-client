@@ -95,7 +95,12 @@ It says nothing about the end-users who are using this connection.
   {:respond fr-skm/async-channel})
 
 (def connection-request
-  "Q: Does this make sense any more?"
+  "Q: Does this make sense any more?
+  A: That depends.
+  Q: What was the initial point?
+  (first guess: request a new connection to a specific URL on a world.
+  If that's close, then this is missing details like the renderer session ID,
+  and it probably doesn't belong here.)"
   {:url mq/zmq-url
    :request-id manager/world-id-type})
 

@@ -6,7 +6,7 @@
                  ;; I'd much rather just inherit this from frereth.common.
                  ;; CIDER doesn't seem to pick that up correctly.
                  ;; TODO: Make this go back away
-                 [org.clojure/clojure "1.9.0-alpha10"]
+                 [org.clojure/clojure "1.9.0-alpha11"]
                  [org.clojure/tools.nrepl "0.2.12"]]
 
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))
