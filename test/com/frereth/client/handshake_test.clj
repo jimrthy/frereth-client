@@ -10,8 +10,7 @@
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-sock]
             [com.stuartsierra.component :as component]
-            [component-dsl.system :as cpt-dsl]
-            [schema.core :as s])
+            [component-dsl.system :as cpt-dsl])
   (:import [com.stuartsierra.component SystemMap]))
 
 (defn mock-up

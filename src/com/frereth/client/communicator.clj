@@ -2,12 +2,11 @@
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
             [clojure.core.async :as async]
+            [clojure.spec :as s]
             [clojure.tools.logging :as log]
             [com.frereth.client.config :as config]
             [com.stuartsierra.component :as component]
-            [plumbing.core :as plumbing]
             [hara.event :refer (raise)]
-            [schema.core :as s]
             [taoensso.timbre :as timbre])
   (:import [clojure.lang ExceptionInfo]))
 
@@ -15,10 +14,51 @@
 ;;;; Well, obviously I could. Do I want to?
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Schema
+;;; Specs
 
-(s/defrecord ZmqContext [context :- mq-cmn/Context
-                         thread-count :- s/Int]
+;;; FIXME: Anything using ::uri really should be using :zmq-url from cljeromq.common instead
+;;; TODO: Refactor to switch to that
+(s/def ::protocol string?)
+(s/def ::address string?)
+(s/def ::port integer?)
+(s/def ::uri (s/keys :req-un [::protocol ::address ::port]))
+
+(s/def ::thread-count (s/and integer? pos?))
+(s/def ::zmq-context (s/keys :req-un [:cljeromq.common/context ::thread-count]))
+
+;; Q: What is this?
+(s/def ::renderers any?)
+(s/def ::renderer-url ::uri)
+(s/def ::renderer-socket (s/keys :req-un [:cljeromq.common/context
+                                          ::renderers
+                                          :cljeromq.common/socket
+                                          ::renderer-url]))
+
+(s/def ::server-socket (s/keys :req-un [::zmq-context
+                                        :cljeromq.common/socket
+                                        ::uri]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Utilities
+
+(s/fdef build-url
+        :args (s/cat :url ::uri)
+        :ret string?)
+(defn build-url
+  "This seems redundant. cljeromq already has something along these lines"
+  [url]
+  (let [port (:port url)]
+    (str (:protocol url) "://"
+         (:address url)
+         ;; port is meaningless for inproc
+         (when port
+           (str ":" port)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Components
+
+(defrecord ZmqContext [context
+                       thread-count]
   component/Lifecycle
   (start
    [this]
@@ -33,23 +73,20 @@
      (comment (mq/terminate! context)))
    (assoc this :context nil)))
 
-;;; TODO: URI should really just be a hash-map
-;;; It also needs a different name, to distinguish it
-;;; from the similar thing in java.util.
-;;; Or wherever it lives.
-(s/defrecord URI [protocol :- s/Str
-                   address :- s/Str
-                   port :- s/Int]
+;;; TODO: This should just go away completely
+;;; Switch to zmq-url from cljeromq.common
+(defrecord URI [protocol
+                address
+                port]
   component/Lifecycle
   (start [this] this)
   (stop [this] this))
-(declare build-url)
 
 ;; Q: How do I want to handle the actual server connections?
-(s/defrecord RendererSocket [context :- ZmqContext
-                             renderers
-                             socket :- mq-cmn/Socket
-                             renderer-url :- URI]
+(defrecord RendererSocket [context
+                           renderers
+                           socket
+                           renderer-url]
   component/Lifecycle
   (start
    [this]
@@ -58,6 +95,8 @@
      (try
        ;; TODO: Make this another option. It's really only
        ;; for debugging.
+       ;; Although, really, when would I ever turn it off?
+       ;; TODO: Look up (and document) what it actually does
        (mq/set-router-mandatory! sock true)
        (mq/bind! sock actual-url)
        (catch ExceptionInfo ex
@@ -86,9 +125,9 @@
    (reset! renderers {})
    (assoc this :socket nil)))
 
-(s/defrecord ServerSocket [context :- ZmqContext
-                           socket :- mq-cmn/Socket
-                           url :- URI]
+(defrecord ServerSocket [context
+                         socket
+                         url]
   component/Lifecycle
   (start
    [this]
@@ -104,18 +143,6 @@
      (mq/disconnect! socket (build-url url))
      (mq/close! socket))
    (assoc this :socket nil)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Utilities
-
-(s/defn build-url :- s/Str
-  [url :- URI]
-  (let [port (:port url)]
-    (str (:protocol url) "://"
-         (:address url)
-         ;; port is meaningless for inproc
-         (when port
-           (str ":" port)))))
 
 ;;; Q: What was this next block for?
 (comment (defrecord Communicator [command-channel
@@ -158,9 +185,9 @@
 (defn new-renderer-url
   [{:keys [renderer-protocol renderer-address renderer-port] :as cfg}]
   (println "Setting up the renderer URL based on:\n" cfg)
-  (strict-map->URI {:protocol renderer-protocol
-                    :address renderer-address
-                    :port renderer-port}))
+  (map->URI {:protocol renderer-protocol
+             :address renderer-address
+             :port renderer-port}))
 
 (defn new-renderer-handler
   [params]
@@ -170,15 +197,19 @@
                           :renderers (atom {})
                           :socket nil})))
 
-(s/defn default-server-url :- URI
+(s/fdef default-server-url
+        :args (s/cat :protocol string?
+                     :address string?
+                     :port integer?)
+        :ret ::uri)
+(defn default-server-url
   ([protocol address port]
-     (strict-map->URI {:protocol protocol
-                       :address address
-                       :port port}))
+     (map->URI {:protocol protocol
+                :address address
+                :port port}))
   ([]
    ;; Start by defaulting to action
    (default-server-url "tcp" "localhost" 7841)))
-
 
 (defn new-server
   []

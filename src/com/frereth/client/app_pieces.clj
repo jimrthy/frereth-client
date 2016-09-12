@@ -8,92 +8,108 @@
             [cljeromq.curve :as curve]
             [clj-time.core :as dt]
             [clojure.core.async :as async]
+            [clojure.spec :as s]
             [com.frereth.client.connection-manager :as connection-manager]
             [com.frereth.client.world-manager :as world-manager]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
-            [schema.core :as s]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
-           [com.frereth.client.connection_manager ConnectionManager]
-           [com.frereth.common.zmq_socket ContextWrapper SocketDescription]
+           [com.frereth.common.zmq_socket ContextWrapper]
            [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Schema
+;;; Specs
 
-(def ui-description
-  "TODO: This (and the pieces that build upon it) really belong in common.
-  Or maybe App.
-  Since, really, it's the over-arching interface between renderer and server.
-  And it needs to be fleshed out much more thoroughly.
-  This is the part that flows down to the Renderer"
-  {:data {:type s/Keyword
-          :version s/Any
-          :name world-manager/world-id-type
-          :body s/Any
-          (s/optional-key :script) [s/Any]
-          (s/optional-key :css) [s/Any]}})
+;;; TODO: This is far too loose
+(s/def ::body any?)
+(s/def ::name :com.frereth.client/world-manager/world-id-type)
+(s/def ::type keyword?)
+(s/def ::version any?)
+(s/def ::css (s/coll-of any?))
+(s/def ::script (s/coll-of any?))
+(s/def ::data (s/keys :req [::body
+                            ::name
+                            ::type
+                            ::version]
+                      :opt [::css ::script]))
+;; TODO: This (and the pieces that build upon it) really belong in common.
+;; Or maybe App.
+;; Since, really, it's the over-arching interface between renderer and server.
+;; And it needs to be fleshed out much more thoroughly.
+;; This is the part that flows down to the Renderer
+(s/def ::ui-description (s/keys :req ::data))
 
-(def base-auth-dialog-description
-  "TODO: Come up with a better name. auth usually won't be involved, really.
+(s/def ::character-encoding keyword?)
+(s/def ::expires inst?)
+;; This is actually a byte array, but, for dev testing, I'm just using a UUID
+;; TODO: Tighten this up once I have something resembling encryption
+(s/def ::public-key (s/or :real-thing :cljeromq.curve/public
+                          :fake-for-debugging uuid?))
+(s/def ::session-token :com.frereth.client.world-manager/session-id-type)
+;;; TODO: Come up with a better name. auth usually won't be involved, really.
+;;;
+;;; This is pretty much a half-baked idea.
+;;;
+;;; Should really be downloading a template of HTML/javascript for doing
+;;; the login. e.g. a URL for an OAUTH endpoint (or however those work).
+;;; The 'expires' is really just for the sake of transitioning to a newer
+;;; login dialog with software updates.
+;;;
+;;; The 'scripting' part is really interesting. It's a microcosm of the
+;;; entire architecture. Part of it should run on the client. The rest should
+;;; run on the Renderer.
+(s/def ::base-auth-dialog-description (s/keys :req [::character-encoding
+                                                    ::expires
+                                                    ::public-key
+                                                    ::session-token]))
 
-  This is pretty much a half-baked idea.
+(s/def ::static-url string?)
+;; Server redirects us here to download the 'real' ui-description
+;; Note that we're long past the idea that this is limited to an AUTH dialog.
+;; Like most of this particular namespace, this made sense as a stepping stone
+;; to help me figure out how it should work
+(s/def ::auth-dialog-url-description (s/merge ::base-auth-dialog-description
+                                              (s/keys :req [::static-url])))
+;; Server just sends us the ui-description directly
+(s/def ::auth-dialog-dynamic-description (s/merge ::base-auth-dialog-description
+                                                  (s/keys :req [::ui-description])))
+(s/def ::auth-dialog-description (s/or :static-url ::auth-dialog-url-description
+                                       :world ::auth-dialog-dynamic-description))
+(s/def ::optional-auth-dialog-description (s/nilable ::auth-dialog-description))
 
-  Should really be downloading a template of HTML/javascript for doing
-  the login. e.g. a URL for an OAUTH endpoint (or however those work).
-  The 'expires' is really just for the sake of transitioning to a newer
-  login dialog with software updates.
-
-  The 'scripting' part is really interesting. It's a microcosm of the
-  entire architecture. Part of it should run on the client. The rest should
-  run on the Renderer."
-  {:character-encoding s/Keyword
-   :expires Date
-   ;; This is actually a byte array, but, for dev testing, I'm just using a UUID
-   ;; TODO: Tighten this up once I have something resembling encryption
-   :public-key s/Any
-   :session-token s/Any})
-(def auth-dialog-url-description
-  "Server redirects us here to download the 'real' ui-description"
-  (assoc base-auth-dialog-description :static-url s/Str))
-(def auth-dialog-dynamic-description
-  "Server just sends us the ui-description directly"
-  (assoc base-auth-dialog-description :world ui-description))
-(def auth-dialog-description
-  (s/conditional
-   :static-url auth-dialog-url-description
-   :world auth-dialog-dynamic-description))
-(def optional-auth-dialog-description (s/maybe auth-dialog-description))
-
-(def individual-connection
-  "Q: What should this actually look like?"
-  {:auth-sock mq-cmn/Socket  ; note that this has the URL
-   ;; TODO: Refactor this to plain ol' :description
-   ;; Except world/UI descriptions don't belong in here.
-   :dialog-description optional-auth-dialog-description})
+(s/def ::auth-sock :cljeromq.common/socket)
+(s/def ::dialog-description ::optional-auth-dialog-description)
+;; Q: What should this actually look like?
+(s/def ::individual-connection (s/keys :req [::auth-sock ::dialog-description]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internals
 
 ;;;; At least some variant of these might still make sense in world-manager
 
-(s/defn current-session-key
+(s/fdef current-session-key
+        :ret :com.frereth.client.world-manager/session-id-type)
+(defn current-session-key
   "Note that, as-is, this is useless.
 Really need some sort of SESSION token
 
 But it doesn't belong here.
 
 TODO: Move to manager
-(probably after I've renamed it to session-manager)"
+(probably after I've renamed it to session-manager)
+
+Q: Which manager ns did I mean?"
   []
   (util/random-uuid))
 
-(s/defn request-auth-descr!
+(s/fdef request-auth-descr!
+        :args (s/cat :auth-socket ::socket-description))
+(defn request-auth-descr!
   "Signal the server that we want to get in touch"
-  [auth-sock :- SocketDescription]
+  [auth-sock]
   (throw (ex-info "obsolete" {:problem "Login App should do this instead"}))
   ;; I'm jumping through too many hoops to get this to work.
   ;; TODO: Make dealer-send do the serialization
@@ -107,8 +123,11 @@ TODO: Move to manager
         serialized #_(-> msg pr-str .getBytes vector) (pr-str msg)]
     (com-comm/dealer-send! (:socket auth-sock) serialized)))
 
-(s/defn expired? :- s/Bool
-  [{:keys [expires] :as ui-description} :- optional-auth-dialog-description]
+(s/fdef expired?
+        :args (s/cat :ui-description ::optional-auth-dialog-description)
+        :ret boolean?)
+(defn expired?
+  [{:keys [expires]}]
   ;; This almost seems like it might make sense as part of the session-manager.
   ;; Decide whether our view of a world is still valid.
   ;; But it probably makes a lot more sense as a utility in the App library.
@@ -128,9 +147,11 @@ TODO: Move to manager
                inverted-result "'")
     (not inverted-result)))
 
-(s/defn configure-session!
-  [this :- ConnectionManager
-   description :- auth-dialog-description]
+(s/fdef configure-session!
+        :args (s/cat :this :com.frereth.client.connection-manager/connection-manager
+                     :description ::auth-dialog-description))
+(defn configure-session!
+  [this description]
   ;; TODO: this needs a lot of love.
   ;; This should probably set up its own registrar/dispatcher layer
   ;; Sooner or later, multiple renderers will be connecting to different
@@ -142,8 +163,11 @@ TODO: Move to manager
                "\n(yes, this is just a baby step)")
     (reset! description-holder description)))
 
-(s/defn extract-renderer-pieces :- ui-description
-  [src :- auth-dialog-description]
+(s/fdef extract-renderer-pieces
+        :args (s/cat :src ::auth-dialog-description)
+        :ret ::ui-description)
+(defn extract-renderer-pieces
+  [src]
   ;; Note that, right now, we also have :character-encoding,
   ;; :public-key, :expires, and :session-token
   ;; Those are all pretty vital...though maybe the Renderer
@@ -151,18 +175,26 @@ TODO: Move to manager
   (log/debug "Extracting :world from:\n" (str (keys src)))
   (:world src))
 
-(s/defn public-key-matches? :- s/Bool
-  [public-key :- s/Uuid
-   request-id :- world-manager/world-id-type]
+(s/fdef public-key-matches?
+        :args (s/cat :public-key ::public-key
+                     :request-id :com.frereth.client.world-manager/world-id-type)
+        :ret boolean)
+(s2/defn public-key-matches?
+  [public-key request-id]
   ;; Really just a placeholder
   ;; TODO: implement
   true)
 
-(s/defn pre-process-auth-dialog :- optional-auth-dialog-description
+(s/fdef pre-process-auth-dialog
+        :args (s/cat :this :com.frereth.client.connection-manager/connection-manager
+                     :incoming-frame ::auth-dialog-description
+                     :request-id :com.frereth.client.world-manager/world-id-type)
+        :ret ::optional-auth-dialog-description)
+(defn pre-process-auth-dialog
   "Convert the dialog description to something the renderer can use"
-  [this :- ConnectionManager
+  [this
    {:keys [public-key static-url world]
-    :as incoming-frame} :- auth-dialog-description
+    :as incoming-frame}
    ;; Q: Do I want to save this based on the requested URL?
    ;; A: Of course!
    ;; TODO: get that into here.
@@ -170,11 +202,11 @@ TODO: Move to manager
    ;; until we get to a layer that needs them split
    ;; Then again, as written, this is hard-coded to a single
    ;; server URL. So there's a bigger picture item to worry about
-   request-id :- world-manager/world-id-type]
+   request-id]
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (when (public-key-matches? public-key request-id)
     (try
-      (let [frame (s/validate auth-dialog-description incoming-frame)]
+      (let [frame (s2/validate auth-dialog-description incoming-frame)]
         (if-not (expired? frame)
           (do
             (log/debug "Not expired!")
@@ -193,10 +225,15 @@ TODO: Move to manager
       (catch ExceptionInfo ex
         (log/error ex "Incoming frame was bad")))))
 
-(s/defn freshen-auth! :- optional-auth-dialog-description
-  [auth-sock :- SocketDescription
+(s/fdef freshen-auth
+        :args (s/cat :auth-sock :com.frereth.common.zmq-socket/socket-description
+                     :url :com.frereth.common.schema/zmq-protocol
+                     :request-id :com.frereth.client.world-manager/world-id-type)
+        :ret ::optional-auth-dialog-description)
+(defn freshen-auth!
+  [auth-sock
    {:keys [protocol address port] :as url}
-   request-id :- world-manager/world-id-type]
+   request-id]
   ;; TODO: Need a background loop (would an EventPair be appropriate?)
   ;; that updates :dialog-description as updates arrive
   ;; Should not be accessing a raw socket here, under any circumstances
@@ -235,11 +272,16 @@ TODO: Move to manager
           (throw ex))
         (throw ex)))))
 
-(s/defn unexpired-auth-description :- optional-auth-dialog-description
+(s/fdef unexpired-auth-description
+        :args (s/cat :this :com.frereth.client.connection-manager/connection-manager
+                     :url :cljeromq.common/zmq-url
+                     :world-id :com.frereth.client.world-manager/world-id-type)
+        :ret ::optional-auth-dialog-description)
+(defn unexpired-auth-description
   "If we're missing the description, or it's expired, try to read a more recent"
-  [this :- ConnectionManager
-   url :- mq/zmq-url
-   world-id :- world-manager/world-id-type]
+  [this
+   url
+   world-id]
   (if-let [potential-description (-> this :worlds deref (get world-id) :dialog-description)]
     (do
       (log/debug "The description we have now:\n" (util/pretty potential-description))
@@ -252,10 +294,16 @@ TODO: Move to manager
       (log/debug "No current description. Requesting one")
       (freshen-auth! this url world-id))))
 
-(s/defn send-auth-descr-response!
+(s/fdef send-auth-descr-response!
+        ;; Really just a guess about the type of the first arg.
+        ;; Not sure what else it could possibly be.
+        :args (s/cat :this ::individual-connection
+                     :destination :com.frereth.client.connection-manager/connection-manager
+                     :new-description ::auth-dialog-description))
+(defn send-auth-descr-response!
   [{:keys [dialog-description] :as this}
-   {:keys [request-id respond] :as destination} :- connection-manager/connection-callback
-   new-description :- auth-dialog-description]
+   {:keys [request-id respond] :as destination}
+   new-description]
   (comment (log/debug "Resetting ConnectionManager's dialog-description atom to\n"
                       new-description)
            ;; Q: Why did I think that eliminating this would be a good idea?
@@ -265,11 +313,11 @@ TODO: Move to manager
   (async/>!! respond (assoc new-description :request-id request-id))
   (log/debug "Description sent"))
 
-(s/defn send-wait!
+(s2/defn send-wait!
   [{:keys [respond]}]
   (async/>!! respond :hold-please))
 
-(s/defn dispatch-auth-response! :- s/Any
+(s2/defn dispatch-auth-response! :- s2/Any
   [this :- ConnectionManager
    cb :- connection-manager/connection-callback]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
@@ -288,7 +336,7 @@ TODO: Move to manager
       (send-wait! cb))))
 
 (comment
-  (s/defn auth-loop-creator :- fr-skm/async-channel
+  (s2/defn auth-loop-creator :- fr-skm/async-channel
     "Set up the auth loop
 This is just an async-zmq/EventPair.
 Actually, this should just be an async/pipeline-async transducer.
@@ -351,7 +399,7 @@ TODO: Switch to that"
         (log/warn "ConnectionManager's auth-loop exited")))))
 
 (comment
-  (s/defn authorize-obsolete :- EventPair
+  (s2/defn authorize-obsolete :- EventPair
     "Build an AUTH socket based on descr.
 Call f with it to handle the negotiation to a 'real'
 comms channel. Use that to build an EventPair using chan for the input.
@@ -368,10 +416,10 @@ a web server that uses this library to connect individual users to a slew
 of Server instances.
 "
     ([this :- WorldManager
-      loop-name :- s/Str
+      loop-name :- s2/Str
       chan :- com-skm/async-channel
       status-chan :- com-skm/async-channel
-      f :- (s/=> socket-session SocketDescription)]
+      f :- (s2/=> socket-session SocketDescription)]
      (let [reader (fn [sock]
                     ;; Q: What should this do?
                     (throw (RuntimeException. "not implemented")))
@@ -380,15 +428,15 @@ of Server instances.
                     (throw (RuntimeException. "not implemented")))]
        (authorize this loop-name chan status-chan f reader writer)))
     ([this :- WorldManager
-      loop-name :- s/Str
-      remote-address :- [s/Int]
-      remote-port :- s/Int
+      loop-name :- s2/Str
+      remote-address :- [s2/Int]
+      remote-port :- s2/Int
       chan :- com-skm/async-channel
       status-chan :- com-skm/async-channel
       ;; Q: Any point to this?
-      f :- (s/=> socket-session SocketDescription)
-      reader :- (s/=> com-skm/java-byte-array mq-cmn/Socket)
-      writer :- (s/=> s/Any mq-cmn/Socket com-skm/java-byte-array)]
+      f :- (s2/=> socket-session SocketDescription)
+      reader :- (s2/=> com-skm/java-byte-array mq-cmn/Socket)
+      writer :- (s2/=> s2/Any mq-cmn/Socket com-skm/java-byte-array)]
      ;; Better to supply the EventLoop as part of the static System
      ;; definition.
      ;; Except that a huge part of the point is that this isn't
@@ -470,12 +518,12 @@ of Server instances.
       (finally
         (component/stop prereq)))))
 
-(s/defn initiate-handshake :- optional-auth-dialog-description
+(s2/defn initiate-handshake :- optional-auth-dialog-description
   "The return value is wrong, but we do need something like this"
   [this :- ConnectionManager
    request :- connection-manager/connection-request
-   attempts :- s/Int
-   timeout-ms :- s/Int]
+   attempts :- s2/Int
+   timeout-ms :- s2/Int]
   (let [receiver (async/chan)
         responder (assoc request :respond receiver)
         transmitter (:auth-request this)]
@@ -501,7 +549,7 @@ of Server instances.
                           (dec remaining-attempts) " attempts remaining")
                 (recur (dec remaining-attempts))))))))))
 
-(s/defn establish-connection :- individual-connection
+(s2/defn establish-connection :- individual-connection
   [world-id :- world-manager/world-id-type
    ctx :- ContextWrapper
    url :- mq/zmq-url]
