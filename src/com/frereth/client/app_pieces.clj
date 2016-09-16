@@ -25,7 +25,7 @@
 
 ;;; TODO: This is far too loose
 (s/def ::body any?)
-(s/def ::name :com.frereth.client/world-manager/world-id-type)
+(s/def ::name :com.frereth.client.world-manager/world-id-type)
 (s/def ::type keyword?)
 (s/def ::version any?)
 (s/def ::css (s/coll-of any?))
@@ -40,7 +40,7 @@
 ;; Since, really, it's the over-arching interface between renderer and server.
 ;; And it needs to be fleshed out much more thoroughly.
 ;; This is the part that flows down to the Renderer
-(s/def ::ui-description (s/keys :req ::data))
+(s/def ::ui-description (s/keys :req [::data]))
 
 (s/def ::character-encoding keyword?)
 (s/def ::expires inst?)
@@ -127,7 +127,7 @@ Q: Which manager ns did I mean?"
         :args (s/cat :ui-description ::optional-auth-dialog-description)
         :ret boolean?)
 (defn expired?
-  [{:keys [expires]}]
+  [{:keys [expires] :as ui-description}]
   ;; This almost seems like it might make sense as part of the session-manager.
   ;; Decide whether our view of a world is still valid.
   ;; But it probably makes a lot more sense as a utility in the App library.
@@ -179,7 +179,7 @@ Q: Which manager ns did I mean?"
         :args (s/cat :public-key ::public-key
                      :request-id :com.frereth.client.world-manager/world-id-type)
         :ret boolean)
-(s2/defn public-key-matches?
+(defn public-key-matches?
   [public-key request-id]
   ;; Really just a placeholder
   ;; TODO: implement
@@ -206,22 +206,27 @@ Q: Which manager ns did I mean?"
   (log/debug "Pre-processing:n" (util/pretty incoming-frame))
   (when (public-key-matches? public-key request-id)
     (try
-      (let [frame (s2/validate auth-dialog-description incoming-frame)]
-        (if-not (expired? frame)
-          (do
-            (log/debug "Not expired!")
-            (if world
-              (do
-                (log/debug "World is hard-coded in response")
-                (configure-session! this incoming-frame)
-                frame)
-              (if static-url
-                (throw (ex-info "Not Implemented" {:todo (str "Download world from " static-url)}))
-                (assert false "World missing both description and URL for downloading description"))))
+      (let [frame (s/conform ::auth-dialog-description incoming-frame)]
+        (if (not= frame :clojure.spec:invalid)
+          (if-not (expired? frame)
+            (do
+              (log/debug "Not expired!")
+              (if world
+                (do
+                  (log/debug "World is hard-coded in response")
+                  (configure-session! this incoming-frame)
+                  frame)
+                (if static-url
+                  (throw (ex-info "Not Implemented" {:todo (str "Download world from " static-url)}))
+                  (assert false "World missing both description and URL for downloading description"))))
+            (log/warn "Incoming frame, with keys:\n"
+                      (keys frame)
+                      "\nis already expired at: "
+                      (:expires frame)))
           (log/warn "Incoming frame, with keys:\n"
                     (keys frame)
-                    "\nis already expired at: "
-                    (:expires frame))))
+                    "\nDoes not conform. Problem:\n"
+                    (s/explain ::auth-dialog-description incoming-frame))))
       (catch ExceptionInfo ex
         (log/error ex "Incoming frame was bad")))))
 
@@ -313,13 +318,19 @@ Q: Which manager ns did I mean?"
   (async/>!! respond (assoc new-description :request-id request-id))
   (log/debug "Description sent"))
 
-(s2/defn send-wait!
+(s/fdef send-wait!
+        :args (s/cat :channel-wrapper :com.frereth.client.connection-manager/callback-channel)
+        :ret any?)
+(defn send-wait!
   [{:keys [respond]}]
   (async/>!! respond :hold-please))
 
-(s2/defn dispatch-auth-response! :- s2/Any
-  [this :- ConnectionManager
-   cb :- connection-manager/connection-callback]
+(s/fdef dispatch-auth-response!
+        :args (s/cat :this :com.frereth.client.connection-manager/connection-manager
+                     :c-b :com.frereth.client.connection-manager/connection-callback)
+        :ret any?)
+(defn dispatch-auth-response!
+  [this cb]
   (log/debug "Incoming AUTH request to respond to:\n" cb)
   (if-let [raw-description (unexpired-auth-description
                             this
@@ -518,12 +529,18 @@ of Server instances.
       (finally
         (component/stop prereq)))))
 
-(s2/defn initiate-handshake :- optional-auth-dialog-description
+(s/fdef initiate-handshake
+        :args (s/cat :this :com.frereth.client.connection-manager/connection-manager
+                     :request :com.frereth.client.connection-manager/connection-request
+                     :attempts (s/and integer? pos?)
+                     :timeout-ms (s/and integer? pos?))
+        :ret ::optional-auth-dialog-description)
+(defn initiate-handshake
   "The return value is wrong, but we do need something like this"
-  [this :- ConnectionManager
-   request :- connection-manager/connection-request
-   attempts :- s2/Int
-   timeout-ms :- s2/Int]
+  [this
+   request
+   attempts
+   timeout-ms]
   (let [receiver (async/chan)
         responder (assoc request :respond receiver)
         transmitter (:auth-request this)]
