@@ -1,8 +1,7 @@
 (ns com.frereth.client.world-manager
   "This is designed to work in concert with the ConnectionManager: that
 establishes an initial connection to a Server, then this takes over to
-do the long-term bulk work.
-"
+do the long-term bulk work."
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]
@@ -52,7 +51,7 @@ do the long-term bulk work.
 (s/def ::remote-mix :com.frereth.common.schema/async-channel)
 (s/def ::remotes ::remote-map-atom)
 
-;; Q: How can I avoid the copy/paste here?
+;; Q: How can I avoid the copy/paste between this and the ctor opts?
 (s/def ::world-manager (s/keys :req-un [::ctrl-chan
                                         ::dispatcher
                                         ::event-loop
@@ -152,7 +151,7 @@ to forward messages based on the channel where it received them."
   component/Lifecycle
   (start
     [this]
-    ;; Caller supplies the event-loop we maintain responsibility for
+    ;; Caller supplies the event-loop. We maintain responsibility for
     ;; starting/stopping.
     ;; This is an advantage of hara.event.
     ;; Q: Is this a feature that's worth adding to component-dsl?
@@ -212,6 +211,7 @@ to forward messages based on the channel where it received them."
   [this
    world-id
    renderer-session]
+
   (if-let [existing-session (-> this :remotes (get world-id) (get renderer-session))]
     (throw (ex-info "Attempting to duplicate a session" {:world-id world-id
                                                          :renderer-session-id renderer-session
@@ -219,6 +219,7 @@ to forward messages based on the channel where it received them."
     ;; Needs to start by exchanging a handshake with the server to establish
     ;; the "best" protocol available on both sides.
     ;; Actually, that belongs in the Dispatcher.
+    ;; No, the ConnectionManager should have already handled it.
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
 
 (s/fdef disconnect-renderer-from-world!

@@ -2,10 +2,7 @@
   "For shuffling messages among the server and attached renderers.
 
 This is really only interesting because it needs to support multiple protocols
-and backwards compatibility.
-
-Which is YAGNI...for this pass, this really should just be a piece of the
-ConnectionManager."
+and backwards compatibility."
   (:require [clojure.spec :as s]
             ;; Currently just needed for spec
             [com.frereth.common.communication]

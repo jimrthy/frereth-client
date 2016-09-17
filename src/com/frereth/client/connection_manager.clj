@@ -14,7 +14,7 @@ Apps shall be free to use whatever comms protocol works best for them.
 This protocol is really more of a recommendation than anything else.
 
 At this point, anyway. That part seems both dangerous and necessary.
-n
+
 The protocol contract is really more of the handshake/cert exchange
 sort of thing. Once that part's done, this should hand off
 to a world-manager/WorldManager.
@@ -24,8 +24,7 @@ here. The credentials exchange shows that the other side has access to
 the server's private key, and that this side has access to the appropriate
 client private key (assuming the server checks).
 
-It says nothing about the end-users who are using this connection.
-"
+It says nothing about the end-users who are using this connection."
   (:require [cljeromq.common :as mq-cmn]
             [cljeromq.core :as mq]
             [cljeromq.curve :as curve]
@@ -40,6 +39,7 @@ It says nothing about the end-users who are using this connection.
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
             [com.stuartsierra.component :as component]
+            [component-dsl.system :as cpt-dsl]
             [hara.event :refer (raise)]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
@@ -92,6 +92,11 @@ It says nothing about the end-users who are using this connection.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Component
 
+;; It's a little annoying to need to pre-declare this.
+;; But it's a public function to which the Component needs
+;; access for its default local connection.
+;; I'd rather handle it this way than mess with my file layout
+;; conventions.
 (declare establish-server-connection!)
 (defrecord ConnectionManager
     [client-keys
@@ -152,12 +157,16 @@ It says nothing about the end-users who are using this connection.
           event-loop-description-wrapper (com-sys/build-event-loop-description event-loop-params)
           event-loop-description (:description event-loop-description-wrapper)
           event-loop-structure (:structure event-loop-description)
+          ;; These really don't fit the classic intended use of Components:
+          ;; those are all started/stopped at the same time.
+          ;; But it's still a very useful abstraction for this sort of thing.
           system-description {:structure (assoc event-loop-structure
                                                 ;; Q: What about the :dispatcher?
                                                 :world-manager 'com.frereth.client.world-manager/ctor)
                               :dependencies (assoc (:dependencies event-loop-description)
-                                                   :world-manager [:event-loop])}]
-      (swap! server-connections #(assoc % server-id (component/start system-description)))
+                                                   :world-manager [:event-loop])}
+          initialized (cpt-dsl/build system-description)]
+      (swap! server-connections #(assoc % server-id (component/start initialized)))
       this)))
 
 (comment
