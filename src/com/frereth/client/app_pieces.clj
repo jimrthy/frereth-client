@@ -566,10 +566,15 @@ of Server instances.
                           (dec remaining-attempts) " attempts remaining")
                 (recur (dec remaining-attempts))))))))))
 
-(s2/defn establish-connection :- individual-connection
-  [world-id :- world-manager/world-id-type
-   ctx :- ContextWrapper
-   url :- mq/zmq-url]
+(s/fdef establish-connection
+        :args (s/cat :world-id :com.frereth.client.world-manager/world-id-type
+                     :ctx :com.frereth.common.zmq-socket/context-wrapper
+                     :url :cljeromq.core/zmq-url)
+        :ret ::individual-connection)
+(defn establish-connection
+  [world-id
+   ctx
+   url]
   ;; TODO: Move this into its own Component that the ConnectionManager can depend on
   (let [dead-sock (zmq-socket/ctor {:ctx ctx
                                     :url url

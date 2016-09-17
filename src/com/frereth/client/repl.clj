@@ -1,19 +1,29 @@
 (ns com.frereth.client.repl
-  (:require [cider.nrepl :refer (cider-nrepl-handler)]
+  "Probably obsolete after 1.7 or 8: have a port open to listen for an nrepl connection"
+  (:require [cider.nrepl :refer (cider-nrepl-handler)]  ;; TODO: Make cider references go away
+            [clojure.spec :as s]
             [clojure.tools.nrepl.server :as nrepl-server]
-            [com.stuartsierra.component :as component]
-            [schema.core :as s]))
+            [com.stuartsierra.component :as component]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Schema
+;; Specs
 
-(s/defrecord REPL [port :- s/Int
-                   stopper :- (s/make-fn-schema s/Bool [[]])]
+(s/def ::stopper (s/fspec :args (s/cat)
+                          :ret boolean?))
+;; TODO: Surely I've already defined this in a dozen different places
+(s/def ::port (and integer? pos? #(< % 65536)))
+(s/def ::repl (s/keys :req-un [::port ::stopper]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Component
+
+(defrecord REPL [port
+                 stopper]
   component/Lifecycle
   (start
     [this]
     (assoc this stopper
-           (comment (nrepl-server/start-server :port port :handler cider-nrepl-handler))))
+           (nrepl-server/start-server :port port :handler cider-nrepl-handler)))
 
   (stop
     [this]
@@ -24,8 +34,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Public
 
+(s/fdef new-repl
+        :args (s/cat :opts (s/keys :opt [::port])))
 (defn new-repl
-  [{:keys [port]}]
+  [{:keys [::port]}]
   ;; This won't work because the schema requires the
   ;; stopper that will be generated during the call to (start)
   (map->REPL {:port port}))
