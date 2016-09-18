@@ -63,6 +63,9 @@
   (testing "Can start, fake connections, and stop"
     (println "Top of bogus-auth. Thread count: " (util/thread-count))
     (let [system (component/start (mock-up))]
+      ;; I'm getting an NPE when it tries to deref its state.
+      ;; Q: What went wrong?
+      (throw (ex-info "Start back here" {}))
       (mgr/connect-renderer-to-world! (:mgr system)
                                       "What are world IDs, really?"
                                       ;; More important: what does a renderer-session look like?

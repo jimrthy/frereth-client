@@ -7,5 +7,7 @@
   (throw (ex-info "Start here" {})))
 
 (deftest dispatch-echos
+  ;; Q: Why 3?
   (testing "3 connections to an Echo server"
-    (is false "Start here")))
+    (let [server (create-echo-server)]
+      (is false "Start here"))))

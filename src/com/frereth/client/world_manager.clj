@@ -50,13 +50,23 @@ do the long-term bulk work."
 (s/def ::event-loop :com.frereth.common.async-zmq/event-pair)
 (s/def ::remote-mix :com.frereth.common.schema/async-channel)
 (s/def ::remotes ::remote-map-atom)
+(s/def ::state (s/and deref
+                      (s/or :success #{::initialized
+                                       ::connecting
+                                       ::protocol-negotiation
+                                       ::rejected
+                                       ::timeout
+                                       ::connected
+                                       ::disconnected}
+                            :fail (s/map-of #(= ::error %) any?))))
 
 ;; Q: How can I avoid the copy/paste between this and the ctor opts?
 (s/def ::world-manager (s/keys :req-un [::ctrl-chan
                                         ::dispatcher
                                         ::event-loop
                                         ::remote-mix
-                                        ::remotes]))
+                                        ::remotes
+                                        ::state]))
 (s/def ::world-manager-ctor-opts (s/keys :opt-un [::ctrl-chan
                                                   ::dispatcher
                                                   ::event-loop
@@ -139,6 +149,35 @@ to forward messages based on the channel where it received them."
                 (when continue? (recur (async/alts! [ctrl-chan server-> remote-mix])))))
             (log/warn "Dispatcher loop exiting"))])))
 
+(defn negotiate-connection!
+  "Honestly, this is going to deserve its own namespace"
+  [{:keys [event-loop state transition]
+    :as this}]
+  (async/go
+    (let [out (-> event-loop :ex-chan :ch)
+          in (-> event-loop :interface :in-chan :ch)]
+      ;; Q: Worth switching to alts! and a timeout?
+      (if (async/offer! in :ohai)
+        (let [challenge (async/<! out)]
+          (if (= challenge :oryl?)
+            ;; Q: Worth namespacing the actual comms protocol here?
+            (if (async/offer! in (list 'icanhaz? {:com.frereth.authentication/protocol-versions {:frereth [[0 0 1]]}}))
+              (do
+                (reset! state ::protocol-negotiation)
+                ;; TODO: Ditch the magic number. The timeout needs to be a parameter. Or maybe an atom associated with the initial ::connecting state
+                (let [[agreement ch] (async/alts! [out (async/timeout (* 5 (util/seconds)))])]
+                  (if agreement
+                    (if (= agreement {:name :frereth :version [0 0 1]})
+                      (reset! state ::connected)
+                      (reset! state {::error {:problem "Unknown protocol response"
+                                              :server-demanded agreement}}))
+                    (reset! state ::timeout))))
+              (reset! state {::error {::problem "Event Loop quit listening"}}))
+
+            (reset! state {::error {::problem "challenge"
+                                    ::received challenge}})))
+        (reset! state {::error "Event Loop not available"})))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Components
@@ -147,7 +186,10 @@ to forward messages based on the channel where it received them."
                          dispatcher
                          event-loop
                          remote-mix
-                         remotes]
+                         remotes
+                         state
+                         ;; async channel to trigger FSM adjustments
+                         transition]
   component/Lifecycle
   (start
     [this]
@@ -157,18 +199,38 @@ to forward messages based on the channel where it received them."
     ;; Q: Is this a feature that's worth adding to component-dsl?
     (let [underlying-mixer (async/chan)  ; Trust this to get GC'd w/ remote-mix
           this (assoc this
+                      :state (atom ::initialized)
+                      ;; Avoiding this was a major factor in recent cpt-dsl changes.
+                      ;; Q: Do I still need to do this?
                       :event-loop (component/start event-loop)
                       :ctrl-chan (async/chan)
                       :remote-mix (async/mix underlying-mixer))
           sans-dispatcher (if-not remotes
                             (assoc this :remotes (atom {}))
-                            this)]
+                            this)
           ;; Q: If/when this turns into a bottleneck, will I gain any performance benefits
           ;; by expanding to multiple instances/go-loop threads?
           ;; TODO: Figure out some way to benchmark this
-      (assoc sans-dispatcher :dispatcher (build-dispatcher-loop! this))))
+          result (assoc sans-dispatcher :dispatcher (build-dispatcher-loop! this))]
+      (add-watch (:state result) :fsm (fn [k _ old new]
+                                        ;; TODO: Be more useful.
+                                        ;; Main thing is that we need to notify renderers
+                                        ;; that they can start connecting to Worlds.
+                                        ;; And add identity...maybe the server ID
+                                        ;; or URL, at least
+                                        (log/info (str "WorldManager: " (util/pretty this)
+                                                       "\nstate changing from " old
+                                                       "\nto " new))
+                                        (when (= new ::timeout)
+                                          (throw (ex-info "Not Implemented"
+                                                          ;; Note that this needs to back off
+                                                          {:todo "Try to reconnect?"})))))
+      (reset! state ::connecting)
+      (negotiate-connection! result)
+      result))
   (stop
     [this]
+    (reset! state ::disconnecting)
     (when event-loop
       (component/stop event-loop))
     (when ctrl-chan
@@ -181,23 +243,26 @@ to forward messages based on the channel where it received them."
                       :ctrl-chan nil
                       :dispatcher nil
                       :event-loop nil
-                      :remote-mix nil)]
-      (if remotes
-        (do
-          (doseq [[_name remote] @remotes]
-            ;; Q: Why am I shutting down the event
-            ;; loop before closing its communications pathways?
-            ;; A: Well, maybe there's an advantage to
-            ;; giving them the final opportunity to flush
-            ;; the pipeline, but it probably doesn't matter.
-            (log/debug "Stopping remote " _name
-                       "\nwith keys:" (keys remote)
-                       "\nand auth token: " (:auth-token remote))
-            ;; FIXME: Shouldn't need to do this
-            (component/stop (dissoc remote :auth-token)))
-          (log/debug "Communications Loop Manager: Finished stopping remotes")
-          (assoc this :remotes nil))
-        this))))
+                      :remote-mix nil)
+          disconnected (if remotes
+                         (do
+                           (doseq [[_name remote] @remotes]
+                             ;; Q: Why am I shutting down the event
+                             ;; loop before closing its communications pathways?
+                             ;; A: Well, maybe there's an advantage to
+                             ;; giving them the final opportunity to flush
+                             ;; the pipeline, but it probably doesn't matter.
+                             (log/debug "Stopping remote " _name
+                                        "\nwith keys:" (keys remote)
+                                        "\nand auth token: " (:auth-token remote))
+                             ;; FIXME: Shouldn't need to do this
+                             (component/stop (dissoc remote :auth-token)))
+                           (log/debug "Communications Loop Manager: Finished stopping remotes")
+                           (assoc this :remotes nil))
+                         this)]
+      (reset! state ::initialized)
+      (remove-watch state :fsm)
+      disconnected)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
@@ -216,11 +281,10 @@ to forward messages based on the channel where it received them."
     (throw (ex-info "Attempting to duplicate a session" {:world-id world-id
                                                          :renderer-session-id renderer-session
                                                          :existing existing-session}))
-    ;; Needs to start by exchanging a handshake with the server to establish
-    ;; the "best" protocol available on both sides.
-    ;; Actually, that belongs in the Dispatcher.
-    ;; No, the ConnectionManager should have already handled it.
-    (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
+    (let [state (-> this :state deref)]
+      (if (= state ::connected)
+        (throw (ex-info "Not Implemented" {:problem "How should this work?"}))
+        (throw (ex-info "Not Implemented" {:problem "What do we do when not connected?"}))))))
 
 (s/fdef disconnect-renderer-from-world!
         :args (s/cat :this ::world-manager
