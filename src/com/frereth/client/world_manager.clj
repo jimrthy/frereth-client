@@ -134,7 +134,7 @@ to forward messages based on the channel where it received them."
   ;;; Q: Do I have enough variations on this theme yet for genericizing to be worthwhile?
   [{:keys [ctrl-chan
            event-loop
-           remote-mix]
+           mix-out]
     :as this}]
   (let [server-> (-> event-loop :ex-chan :ch)]
     (assert server-> (str "Missing the from-server channel in the event-loop\n"
@@ -144,18 +144,28 @@ to forward messages based on the channel where it received them."
                           (keys (:ex-chan event-loop))))
     (assert ctrl-chan (str "Missing control-channel in WorldManager Component.\nAvailable keys:\n"
                            (keys this)))
-    (assert remote-mix (str "Missing remote-mixer in WorldManager Component.\nAvailable keys:\n"
+    (assert mix-out (str "Missing mixer output in WorldManager Component.\nAvailable keys:\n"
                            (keys this)))
     (let [dispatch-thread
           (async/go
-            (loop [[val ch] (async/alts! [ctrl-chan server-> remote-mix])]
+            (log/info "Entering World Manager's dispatcher thread loop.\nStarting by polling on:"
+                      (str ctrl-chan) ", a " (class ctrl-chan) "\n"
+                      (str server->) ", a " (class server->) "\n"
+                      (str mix-out) ", a " (class mix-out))
+            (loop [[val ch] (async/alts! [ctrl-chan server-> mix-out])]
               (let [continue? (condp = ch
                                 ctrl-chan (dispatch-control-message! this val)
                                 server-> (dispatcher/server-> this val)
+                                ;; Message arrived at mix-out. Which means from the server, right?
+                                ;; It's a bad that I've already forgotten how I wanted this part to work.
+                                ;; But it seems like it would make the most sense for this to mean I need
+                                ;; to pick a renderer socket based on the message and forward this there.
                                 (throw (ex-info "Not Implemented" {:problem "This is where it gets interesting"
                                                                    :source ch
                                                                    :received val})))]
-                (when continue? (recur (async/alts! [ctrl-chan server-> remote-mix])))))
+                (when continue?
+                  (log/debug "World Manager dispatcher looping")
+                  (recur (async/alts! [ctrl-chan server-> mix-out])))))
             (log/warn "Dispatcher loop exiting"))])))
 
 (defn negotiate-connection!
@@ -194,6 +204,7 @@ to forward messages based on the channel where it received them."
 (defrecord WorldManager [ctrl-chan
                          dispatcher
                          event-loop
+                         mix-out
                          remote-mix
                          remotes
                          state
@@ -206,7 +217,7 @@ to forward messages based on the channel where it received them."
     ;; starting/stopping.
     ;; This is an advantage of hara.event.
     ;; Q: Is this a feature that's worth adding to component-dsl?
-    (let [underlying-mixer (async/chan)  ; Trust this to get GC'd w/ remote-mix
+    (let [mix-out (or mix-out (async/chan)) ; Trust this to get GC'd w/ remote-mix
           state (atom ::initialized)
           this (assoc this
                       :state state
@@ -214,7 +225,8 @@ to forward messages based on the channel where it received them."
                       ;; Q: Do I still need to do this?
                       :event-loop (component/start event-loop)
                       :ctrl-chan (async/chan)
-                      :remote-mix (async/mix underlying-mixer))
+                      :mix-out mix-out
+                      :remote-mix (async/mix mix-out))
           sans-dispatcher (if-not remotes
                             (assoc this :remotes (atom {}))
                             this)
@@ -249,12 +261,19 @@ to forward messages based on the channel where it received them."
       ;; Note that this signals the dispatcher loop to close
       (async/close! ctrl-chan))
     (when remote-mix
+      ;; Q: Does this make any sense?
+      ;; What we really want to do is close the channels
+      ;; coming in to the mixer.
+      ;; But we don't own them, do we?
       (async/close! remote-mix))
+    (when mix-out
+      (async/close! mix-out))
 
     (let [this (assoc this
                       :ctrl-chan nil
                       :dispatcher nil
                       :event-loop nil
+                      :mix-out nil
                       :remote-mix nil)
           disconnected (if remotes
                          (do
