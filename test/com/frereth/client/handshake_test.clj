@@ -18,8 +18,7 @@
 
 (defn mock-dscr
   []
-    (let [descr '{:ctx com.frereth.common.zmq-socket/ctx-ctor
-                  :event-loop com.frereth.common.system/build-event-loop-description
+    (let [descr '{:event-loop com.frereth.common.system/build-event-loop-description
                   :mgr com.frereth.client.world-manager/ctor}
         ;; For the sake of consistency, just use 2 threads.
         ;; That way a simple blocking read won't hose even single-CPU systems,
@@ -27,17 +26,16 @@
         ;; with lots of cores.
         ;; This isn't exactly a good decision, but I'm really not interested in
         ;; trying to unit test the zeromq multi-threading implementation.
-        configuration-tree {:ctx {:thread-count 2}
-                            :event-loop {:client-keys (curve/new-key-pair)
+        configuration-tree {:event-loop {:client-keys (curve/new-key-pair)
                                          :direction :connect
                                          :event-loop-name "handsake::mock-up"
                                          ;; Q: Do the contents matter at all for an inproc connection?
                                          :server-key (byte-array 40)
                                          :socket-type :pair
+                                         :thread-count 2
                                          :url {:cljeromq.common/zmq-protocol :inproc
                                                :cljeromq.common/zmq-address (name (gensym))}}}
-        dependencies {:event-loop {:context :ctx}
-                      :mgr [:event-loop]}]
+        dependencies {:mgr [:event-loop]}]
       {:descr descr
        :dependencies dependencies
        :configuration-tree configuration-tree}))
@@ -97,9 +95,8 @@
     (let [system (component/start (mock-up))]
       (println "Component started. Trying to connect a renderer to a world")
       (mgr/connect-renderer-to-world! (:mgr system)
-                                      "What are world IDs, really?"
-                                      ;; More important: what does a renderer-session look like?
-                                      {})
+                                      "World::BogusAuthenticator"
+                                      "Renderer::RequestingBogusAuthentication")
       (throw (ex-info "Start here" {}))
       ;; Q: Is there any point to anything else in this let block?
       (let [in->out (async/chan)

@@ -1,5 +1,7 @@
 (ns com.frereth.client.world-manager
-  "This is designed to work in concert with the ConnectionManager: that
+  "Manage connections between Renderers and worlds on a single Server.
+
+This is designed to work in concert with the ConnectionManager: that
 establishes an initial connection to a Server, then this takes over to
 do the long-term bulk work."
   (:require [cljeromq.common :as mq-cmn]
@@ -197,6 +199,26 @@ to forward messages based on the channel where it received them."
                                     ::received challenge}})))
         (reset! state {::error "Event Loop not available"})))))
 
+(s/fdef connect-renderer-to-connected-world!
+        :args (s/cat :this ::world-manager
+                     :world-id ::world-id-type
+                     :renderer-session ::session-id-type)
+        :ret ::renderer-session)
+(defn connect-renderer-to-connected-world!
+  [this world-id renderer-session]
+  (throw (ex-info "Need to cope with already-connected worlds" {:problem "How should this work?"})))
+
+(s/fdef establish-new-connection!
+        :args (s/cat :this ::world-manager
+                     :world-id ::world-id-type
+                     :renderer-session ::session-id-type)
+        :ret ::renderer-session)
+(defn establish-new-connection!
+  [this world-id renderer-session]
+  ;; TODO: negotiate-connection! is probably a good starting point
+  (throw (ex-info "Need to do World connection"
+                  {:problem "What do we do when not connected?"})))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Components
@@ -307,15 +329,17 @@ to forward messages based on the channel where it received them."
   [this
    world-id
    renderer-session]
-
-  (if-let [existing-session (-> this :remotes (get world-id) (get renderer-session))]
+  (if-let [existing-session (-> this
+                                :remotes
+                                (get world-id)
+                                (get renderer-session))]
     (throw (ex-info "Attempting to duplicate a session" {:world-id world-id
                                                          :renderer-session-id renderer-session
                                                          :existing existing-session}))
     (let [state (-> this :state deref)]
-      (if (= state ::connected)
-        (throw (ex-info "Not Implemented" {:problem "How should this work?"}))
-        (throw (ex-info "Not Implemented" {:problem "What do we do when not connected?"}))))))
+      (if (not= state ::connected)
+        (establish-new-connection! this world-id renderer-session)
+        (connect-renderer-to-connected-world! this world-id renderer-session)))))
 
 (s/fdef disconnect-renderer-from-world!
         :args (s/cat :this ::world-manager
