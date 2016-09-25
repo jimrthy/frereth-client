@@ -137,6 +137,15 @@ to forward messages based on the channel where it received them."
            remote-mix]
     :as this}]
   (let [server-> (-> event-loop :ex-chan :ch)]
+    (assert server-> (str "Missing the from-server channel in the event-loop\n"
+                          "Available keys in there:\n"
+                          (keys event-loop)
+                          "\nAvailable keys under its :ex-chan component:\n"
+                          (keys (:ex-chan event-loop))))
+    (assert ctrl-chan (str "Missing control-channel in WorldManager Component.\nAvailable keys:\n"
+                           (keys this)))
+    (assert remote-mix (str "Missing remote-mixer in WorldManager Component.\nAvailable keys:\n"
+                           (keys this)))
     (let [dispatch-thread
           (async/go
             (loop [[val ch] (async/alts! [ctrl-chan server-> remote-mix])]
@@ -198,8 +207,9 @@ to forward messages based on the channel where it received them."
     ;; This is an advantage of hara.event.
     ;; Q: Is this a feature that's worth adding to component-dsl?
     (let [underlying-mixer (async/chan)  ; Trust this to get GC'd w/ remote-mix
+          state (atom ::initialized)
           this (assoc this
-                      :state (atom ::initialized)
+                      :state state
                       ;; Avoiding this was a major factor in recent cpt-dsl changes.
                       ;; Q: Do I still need to do this?
                       :event-loop (component/start event-loop)
@@ -226,6 +236,8 @@ to forward messages based on the channel where it received them."
                                                           ;; Note that this needs to back off
                                                           {:todo "Try to reconnect?"})))))
       (reset! state ::connecting)
+      ;; TODO: Move this back into connection-manager
+      ;; Q: Is that where it belongs?
       (negotiate-connection! result)
       result))
   (stop

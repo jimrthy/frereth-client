@@ -13,11 +13,20 @@
             [component-dsl.system :as cpt-dsl])
   (:import [com.stuartsierra.component SystemMap]))
 
-(defn mock-up
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Helpers
+
+(defn mock-dscr
   []
-  (let [descr '{:ctx com.frereth.common.zmq-socket/ctx-ctor
-                :event-loop com.frereth.common.system/build-event-loop-description
-                :mgr com.frereth.client.world-manager/ctor}
+    (let [descr '{:ctx com.frereth.common.zmq-socket/ctx-ctor
+                  :event-loop com.frereth.common.system/build-event-loop-description
+                  :mgr com.frereth.client.world-manager/ctor}
+        ;; For the sake of consistency, just use 2 threads.
+        ;; That way a simple blocking read won't hose even single-CPU systems,
+        ;; but we won't have any surprising differences when we move to systems
+        ;; with lots of cores.
+        ;; This isn't exactly a good decision, but I'm really not interested in
+        ;; trying to unit test the zeromq multi-threading implementation.
         configuration-tree {:ctx {:thread-count 2}
                             :event-loop {:client-keys (curve/new-key-pair)
                                          :direction :connect
@@ -25,14 +34,26 @@
                                          ;; Q: Do the contents matter at all for an inproc connection?
                                          :server-key (byte-array 40)
                                          :socket-type :pair
-                                         :url {:protocol :inproc
-                                               :address (name (gensym))}
-
-                                         }}
+                                         :url {:cljeromq.common/zmq-protocol :inproc
+                                               :cljeromq.common/zmq-address (name (gensym))}}}
         dependencies {:event-loop {:context :ctx}
                       :mgr [:event-loop]}]
-    (cpt-dsl/build {:structure descr
-                    :dependencies dependencies}
+      {:descr descr
+       :dependencies dependencies
+       :configuration-tree configuration-tree}))
+(comment
+  (let [{:keys [:configuration-tree :dependencies :descr]} (mock-dscr)
+        pre-processed (cpt-dsl/pre-process #:component-dsl.system{:structure descr
+                                                                  :dependencies dependencies
+                                                                  :options configuration-tree})]
+    pre-processed)
+  )
+
+(defn mock-up
+  []
+  (let [{:keys [:configuration-tree :dependencies :descr]} (mock-dscr)]
+    (cpt-dsl/build {:component-dsl.system/structure descr
+                    :component-dsl.system/dependencies dependencies}
                    configuration-tree)))
 
 (comment
@@ -57,6 +78,17 @@
       #_(component/stop system)
       system))
   )
+
+(comment
+  (let [initialized (mock-up)
+        started (component/start initialized)]
+    (try
+      started
+      (finally (component/stop started))))
+  )
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Tests
 
 (deftest bogus-auth
   ;; This seems more than a little ridiculous
