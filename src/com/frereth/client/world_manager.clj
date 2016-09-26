@@ -52,6 +52,7 @@ do the long-term bulk work."
 (s/def ::event-loop :com.frereth.common.async-zmq/event-pair)
 (s/def ::remote-mix :com.frereth.common.schema/async-channel)
 (s/def ::remotes ::remote-map-atom)
+
 (s/def ::state (s/and deref
                       (s/or :success #{::initialized
                                        ::connecting
@@ -171,7 +172,19 @@ to forward messages based on the channel where it received them."
             (log/warn "Dispatcher loop exiting"))])))
 
 (defn negotiate-connection!
-  "Honestly, this is going to deserve its own namespace"
+  "Honestly, this is going to deserve its own namespace.
+
+  I go back and forth between whether this belongs here or
+  in the ConnectionManager.
+
+  That's what establishes the initial Connection to the Server.
+  Which is really what this is all about.
+
+  But it's about establishing connections to a multitude of Servers.
+  Which means this belongs in here.
+
+  At least until it gets big enough to truly justify its own namespace.
+  And even then...this is where the state tracking needs to live."
   [{:keys [event-loop state transition]
     :as this}]
   (async/go
@@ -215,9 +228,10 @@ to forward messages based on the channel where it received them."
         :ret ::renderer-session)
 (defn establish-new-connection!
   [this world-id renderer-session]
-  ;; TODO: negotiate-connection! is probably a good starting point
-  (throw (ex-info "Need to do World connection"
-                  {:problem "What do we do when not connected?"})))
+  ;; This seems tempting, but it's wrong.
+  ;; It needed to happen during (start this)
+  (comment (negotiate-connection! this))
+  (throw (ex-info "Need to connect to a new world" {:problem "How should this work?"})))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -270,8 +284,6 @@ to forward messages based on the channel where it received them."
                                                           ;; Note that this needs to back off
                                                           {:todo "Try to reconnect?"})))))
       (reset! state ::connecting)
-      ;; TODO: Move this back into connection-manager
-      ;; Q: Is that where it belongs?
       (negotiate-connection! result)
       result))
   (stop
@@ -282,12 +294,8 @@ to forward messages based on the channel where it received them."
     (when ctrl-chan
       ;; Note that this signals the dispatcher loop to close
       (async/close! ctrl-chan))
-    (when remote-mix
-      ;; Q: Does this make any sense?
-      ;; What we really want to do is close the channels
-      ;; coming in to the mixer.
-      ;; But we don't own them, do we?
-      (async/close! remote-mix))
+    ;; It's tempting to try to close! remote-mix.
+    ;; But that isn't legal.
     (when mix-out
       (async/close! mix-out))
 

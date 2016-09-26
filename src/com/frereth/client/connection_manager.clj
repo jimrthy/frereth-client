@@ -60,6 +60,7 @@ It says nothing about the end-users who are using this connection."
 (s/def ::message-context :com.frereth.common.zmq-socket/context-wrapper)
 (s/def ::server-connections ::server-connection-map)
 (s/def ::server-key :cljeromq.curve/public)
+
 (s/def ::status-check :com.frereth.common.schema/async-channel)
 (s/def ::connection-manager (s/keys :req-un [::client-keys
                                              ::local-url
@@ -150,6 +151,11 @@ It says nothing about the end-users who are using this connection."
    {:keys [server-id url]}]
   (when-not (-> server-connections deref (get server-id))
     (let [event-loop-params {:client-keys client-keys
+                             ;; This part's broken now.
+                             ;; I really need to be able to override this from here,
+                             ;; even though it's far more convenient for the Server
+                             ;; to just let common set up its own.
+                             ;; Pretty sure this will just break component-dsl.
                              :context ctx
                              :event-loop-name server-id
                              :server-key server-key
