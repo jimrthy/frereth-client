@@ -227,11 +227,36 @@ to forward messages based on the channel where it received them."
                      :renderer-session ::session-id-type)
         :ret ::renderer-session)
 (defn establish-new-connection!
-  [this world-id renderer-session]
+  [{:keys [event-loop]
+    :as this}
+   world-id renderer-session]
   ;; This seems tempting, but it's wrong.
   ;; It needed to happen during (start this)
-  (comment (negotiate-connection! this))
-  (throw (ex-info "Need to connect to a new world" {:problem "How should this work?"})))
+  #_(negotiate-connection! this)
+  (let [interface (:interface event-loop)
+        ->server (:in-chan interface)
+        server-> (:ex-chan event-loop)]
+    (async/go
+      (async/>! ->server {:action :com.frereth.client/connect
+                          :world-id world-id
+                          :renderer-session-id renderer-session})
+      (let [[v ch] (async/alts! [server-> (async/timeout 5000)])]
+        (if (= ch server->)
+          ;; TODO: Look up destructuring syntax to do this in a single step
+          (let [{:keys [client renderer]} v
+                {:keys [renderer->server server->renderer]
+                 :or {renderer->server identity
+                      server->renderer identity}} client]
+            ;; Those should be functions that accept the previous "world state"
+            ;; and the current message and return the next "world state" and
+            ;; the message to pass along.
+            ;; It's worth adding an option to also pass messages along to other
+            ;; connected renderers, to save the server round-trip time.
+            ;; Need to wrap the messages flowing back and forth in them.
+            ;; TODO: Dig back into this implementation to figure out where
+            ;; the end-points are to allow me to do this.
+            (throw (ex-info "Need to connect to a new world" {:problem "How do I do that?"})))
+          (throw (ex-info "Time-out waiting for server response" {:problem "Write this part"})))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
