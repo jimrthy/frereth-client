@@ -137,43 +137,60 @@ It says nothing about the end-users who are using this connection."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
 
+(defn initialize-server-connection!
+  [{:keys [server-connections
+           client-keys
+           server-key
+           ctx]
+    :as this}
+   {:keys [::server-id ::url]
+    :as connection-description}]
+  (let [event-loop-params {:client-keys client-keys
+                           ;; This part's broken now.
+                           ;; I really need to be able to override this from here,
+                           ;; even though it's far more convenient for the Server
+                           ;; to just let common set up its own.
+                           ;; Pretty sure this will just break component-dsl.
+                           :context ctx
+                           :event-loop-name server-id
+                           :server-key server-key
+                           :url url}
+        ;; This is still using the original version where I was nesting
+        ;; components manually.
+        ;; Really should just be setting this up as a nested ctor
+        event-loop-description-wrapper (com-sys/build-event-loop-description event-loop-params)
+        event-loop-description (:description event-loop-description-wrapper)
+        event-loop-structure (:structure event-loop-description)
+
+        struct (assoc event-loop-structure
+                      ;; Q: What about the :dispatcher?
+                      :world-manager 'com.frereth.client.world-manager/ctor)
+        deps (assoc (:dependencies event-loop-description)
+                    :world-manager [:event-loop])
+        ;; These really don't fit the classic intended use of Components:
+        ;; those are all started/stopped at the same time.
+        ;; But it's still a very useful abstraction for this sort of thing.
+        system-description #:component-dsl.system {:structure struct
+                                                   :dependencies deps}]
+    (cpt-dsl/build system-description {})))
+
 (s/fdef establish-server-connection!
         :args (s/cat :this ::connection-manager
                      :server ::server-connection-description)
         :ret ::connection-manager)
 (defn establish-server-connection!
   "Possibly alters ConnectionManager with a new world-manager"
-  [{:keys [server-connections
-           client-keys
-           server-key
-           ctx]
+  [{:keys [server-connections]
     :as this}
-   {:keys [server-id url]}]
+   {:keys [::server-id]
+    :as connection-description}]
   (when-not (-> server-connections deref (get server-id))
-    (let [event-loop-params {:client-keys client-keys
-                             ;; This part's broken now.
-                             ;; I really need to be able to override this from here,
-                             ;; even though it's far more convenient for the Server
-                             ;; to just let common set up its own.
-                             ;; Pretty sure this will just break component-dsl.
-                             :context ctx
-                             :event-loop-name server-id
-                             :server-key server-key
-                             :url url}
-          event-loop-description-wrapper (com-sys/build-event-loop-description event-loop-params)
-          event-loop-description (:description event-loop-description-wrapper)
-          event-loop-structure (:structure event-loop-description)
-          ;; These really don't fit the classic intended use of Components:
-          ;; those are all started/stopped at the same time.
-          ;; But it's still a very useful abstraction for this sort of thing.
-          system-description {:structure (assoc event-loop-structure
-                                                ;; Q: What about the :dispatcher?
-                                                :world-manager 'com.frereth.client.world-manager/ctor)
-                              :dependencies (assoc (:dependencies event-loop-description)
-                                                   :world-manager [:event-loop])}
-          initialized (cpt-dsl/build system-description)]
-      (swap! server-connections #(assoc % server-id (component/start initialized)))
-      this)))
+    (let [initialized (initialize-server-connection! this
+                                                     connection-description)]
+      (swap! server-connections #(assoc %
+                                        server-id
+                                        (component/start initialized))))
+    this))
 
 (comment
   (let [descr {:client-keys (curve/new-key-pair)

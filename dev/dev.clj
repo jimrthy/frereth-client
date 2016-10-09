@@ -13,7 +13,8 @@
             [com.frereth.client.connection-manager :as con-man]
             [com.frereth.client.system :as system]
             [com.frereth.common.util :as util]
-            [com.stuartsierra.component :as component]))
+            [com.stuartsierra.component :as component]
+            [component-dsl.system :as cpt-dsl]))
 
 (def system nil)
 
@@ -21,7 +22,11 @@
   "Constructs the current development system."
   []
   (alter-var-root #'system
-    (constantly (system/init {}))))
+                  (fn [_]
+                    (let [nested-client-creator 'system/init
+                          struct #:component-dsl.system {:structure {:client 'com.frereth.client.system/init}}
+                          options {}]
+                      (cpt-dsl/build struct options)))))
 
 (defn start
   "Starts the current development system."

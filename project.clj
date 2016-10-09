@@ -5,8 +5,11 @@
                  [com.postspectacular/rotor "0.1.0"]
                  ;; I'd much rather just inherit this from frereth.common.
                  ;; CIDER doesn't seem to pick that up correctly.
+                 ;; That should be fixed now.
+                 ;; And there's a managed-dependencies plugin for lein
+                 ;; that should fix the problem
                  ;; TODO: Make this go back away
-                 [org.clojure/clojure "1.9.0-alpha11"]
+                 [org.clojure/clojure "1.9.0-alpha13"]
                  [org.clojure/tools.nrepl "0.2.12"]]
 
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))

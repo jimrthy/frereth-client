@@ -39,7 +39,7 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
 
 (s/fdef init
         :args (s/cat :opts ::system-opts)
-        :ret :com.frereth.common.schema/system-map)
+        :ret :component-dsl.system/nested-definition)
 (defn init
   [{:keys [client-keys
            ctx-thread-count
@@ -72,9 +72,10 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
                  ;; :message-loop-manager com.frereth.client.manager/ctor
                  }
         depends {:connection-manager {:message-context :ctx}}]
-    (cpt-dsl/build {:structure struct
-                    :dependencies depends}
-                   {:connection-manager {:client-keys client-keys
-                                         :local-url local-url
-                                         :server-key server-key}
-                    :ctx {:thread-count ctx-thread-count}})))
+    #:component-dsl.system {:system-configuration #:component-dsl.system {:structure struct
+                                                                          :dependencies depends}
+                            :configuration-tree {:connection-manager {:client-keys client-keys
+                                                                      :local-url local-url
+                                                                      :server-key server-key}
+                                                 :ctx {:thread-count ctx-thread-count}}
+                            :primary-component :connection-manager}))
