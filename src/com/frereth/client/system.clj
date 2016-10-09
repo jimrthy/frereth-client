@@ -51,9 +51,9 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
          ;; Do each of those requests need their own ConnectionManager?
          ;; It seems like a waste for them to bounce through the local
          ;; Server, though that may well have been what I had in mind
-         local-url {:address "127.0.0.1"
-                    :protocol :tcp
-                    :port (cfg/auth-port)}
+         local-url #:cljeromq.common {:zmq-address "127.0.0.1"
+                                      :zmq-protocol :tcp
+                                      :port (cfg/auth-port)}
          ;; TODO: Just eliminate this short-cut magic key completely
          server-key (curve/z85-decode "8C))+8}}<P[p8%c<j)bpj2aJO5:VCU>DvB@@#LqW")}
     :as overrides}]

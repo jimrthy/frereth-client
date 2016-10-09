@@ -155,24 +155,18 @@ It says nothing about the end-users who are using this connection."
                            :event-loop-name server-id
                            :server-key server-key
                            :url url}
-        ;; This is still using the original version where I was nesting
-        ;; components manually.
-        ;; Really should just be setting this up as a nested ctor
-        event-loop-description-wrapper (com-sys/build-event-loop-description event-loop-params)
-        event-loop-description (:description event-loop-description-wrapper)
-        event-loop-structure (:structure event-loop-description)
+        struc '{:event-loop com.frereth.common.system/build-event-loop-description
+                ;; Q: What about the :dispatcher?
+                :world-manager com.frereth.client.world-manager/ctor}
+        deps {:world-manager [:event-loop]}
 
-        struct (assoc event-loop-structure
-                      ;; Q: What about the :dispatcher?
-                      :world-manager 'com.frereth.client.world-manager/ctor)
-        deps (assoc (:dependencies event-loop-description)
-                    :world-manager [:event-loop])
         ;; These really don't fit the classic intended use of Components:
         ;; those are all started/stopped at the same time.
-        ;; But it's still a very useful abstraction for this sort of thing.
-        system-description #:component-dsl.system {:structure struct
-                                                   :dependencies deps}]
-    (cpt-dsl/build system-description {})))
+        ;; But it's still a very useful abstraction for this sort of thing
+        system-description #:component-dsl.system {:structure struc
+                                                   :dependencies deps}
+        opts {:event-loop event-loop-params}]
+    (cpt-dsl/build system-description opts)))
 
 (s/fdef establish-server-connection!
         :args (s/cat :this ::connection-manager
