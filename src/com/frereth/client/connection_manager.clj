@@ -113,9 +113,9 @@ It says nothing about the end-users who are using this connection."
     (let [this (assoc this
                       :status-check (or status-check (async/chan))
                       :server-connections (or server-connections (atom {})))]
-      (establish-server-connection! this
-                                    {::server-id :local
-                                     ::url local-url})
+      (comment) (establish-server-connection! this
+                                              {::server-id :local
+                                               ::url local-url})
       this))
   (stop
    [this]
@@ -134,14 +134,14 @@ It says nothing about the end-users who are using this connection."
            :message-context nil   ; Q: Do I really want to nil this out?
            :status-check nil)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Public
-
-(defn initialize-server-connection!
-  [{:keys [server-connections
-           client-keys
+(s/fdef establish-server-connection!
+        :args (s/cat :this ::connection-manager
+                     :server ::server-connection-description)
+        :ret :component-dsl.system/system-map)
+(defn initialize-server-connection
+  [{:keys [client-keys
            server-key
-           ctx]
+           message-context]
     :as this}
    {:keys [::server-id ::url]
     :as connection-description}]
@@ -151,7 +151,7 @@ It says nothing about the end-users who are using this connection."
                            ;; even though it's far more convenient for the Server
                            ;; to just let common set up its own.
                            ;; Pretty sure this will just break component-dsl.
-                           :context ctx
+                           :context message-context
                            :event-loop-name server-id
                            :server-key server-key
                            :url url}
@@ -167,6 +167,19 @@ It says nothing about the end-users who are using this connection."
                                                    :dependencies deps}
         opts {:event-loop event-loop-params}]
     (cpt-dsl/build system-description opts)))
+(comment
+  (let [baseline (initialize-server-connection
+                  {:client-keys {:public "ac" :private "dc"}
+                   :server-key {:public "This is safe to share"}
+                   :ctx "Hmm. Supplying this isn't trivial"}
+                  {::server-id "repl-check"
+                   ::url #:cljeromq.common {:zmq-address "127.0.0.1"
+                                            :zmq-protocol :tcp
+                                            :port 21}})]
+    (keys baseline))
+  )
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Public
 
 (s/fdef establish-server-connection!
         :args (s/cat :this ::connection-manager
@@ -179,8 +192,13 @@ It says nothing about the end-users who are using this connection."
    {:keys [::server-id]
     :as connection-description}]
   (when-not (-> server-connections deref (get server-id))
-    (let [initialized (initialize-server-connection! this
-                                                     connection-description)]
+    (let [initialized (initialize-server-connection this
+                                                    connection-description)]
+      ;; This probably needs to be a ref.
+      ;; If two threads try to connect to the same server at the same time,
+      ;; Bad Things(TM) will ensue.
+      ;; Or maybe I should just do compare-and-set!...but that seems like it
+      ;; would mean reinventing STM
       (swap! server-connections #(assoc %
                                         server-id
                                         (component/start initialized))))
@@ -191,9 +209,9 @@ It says nothing about the end-users who are using this connection."
                :context {:mock "Don't need any of this, do I?"}
                :event-loop-name :sample
                :server-key "Public, byte array"
-               :url  {:address "127.0.0.1"
-                      :protocol :tcp
-                      :port 21}}
+               :url #:cljeromq.common {:zmq-address "127.0.0.1"
+                                      :zmq-protocol :tcp
+                                      :port 21}}
           baseline (com-sys/build-event-loop descr)]
     (keys baseline))
   )
