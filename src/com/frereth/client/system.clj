@@ -63,6 +63,7 @@ TODO: Needs something like slamhound to eliminate unused pieces directly below"
 
   (let [struct '{;; We really need multiple instances of this, one per connected world
                  ;; It's owned by the connection manager
+                 ;; More accurately, it's owned by the world-manager's EventLoop.
                  ;; :auth-sock
                  :connection-manager com.frereth.client.connection-manager/ctor
                  :ctx com.frereth.common.zmq-socket/ctx-ctor

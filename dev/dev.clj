@@ -16,6 +16,10 @@
             [com.stuartsierra.component :as component]
             [component-dsl.system :as cpt-dsl]))
 
+(def +frereth-component+
+  "Just to help me track which REPL is which"
+  'client)
+
 (def system nil)
 
 (defn init
