@@ -9,7 +9,7 @@
                  ;; And there's a managed-dependencies plugin for lein
                  ;; that should fix the problem
                  ;; TODO: Make this go back away
-                 [org.clojure/clojure "1.9.0-alpha13"]
+                 [org.clojure/clojure "1.9.0-alpha14"]
                  [org.clojure/tools.nrepl "0.2.12"]]
 
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))
