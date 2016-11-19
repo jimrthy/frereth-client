@@ -28,7 +28,7 @@
         ;; trying to unit test the zeromq multi-threading implementation.
         configuration-tree {:event-loop {:client-keys (curve/new-key-pair)
                                          :direction :connect
-                                         :event-loop-name "handsake::mock-up"
+                                         :event-loop-name "handhsake::mock-up"
                                          ;; Q: Do the contents matter at all for an inproc connection?
                                          :server-key (byte-array 40)
                                          :socket-type :pair

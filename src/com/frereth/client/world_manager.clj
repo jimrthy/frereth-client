@@ -234,8 +234,8 @@ to forward messages based on the channel where it received them."
   ;; It needed to happen during (start this)
   #_(negotiate-connection! this)
   (let [interface (:interface event-loop)
-        ->server (:in-chan interface)
-        server-> (:ex-chan event-loop)]
+        ->server (-> interface :in-chan :ch)
+        server-> (-> event-loop :ex-chan :ch)]
     (async/go
       (async/>! ->server {:action :com.frereth.client/connect
                           :world-id world-id
