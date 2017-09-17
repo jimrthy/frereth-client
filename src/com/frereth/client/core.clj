@@ -1,14 +1,14 @@
 (ns com.frereth.client.core
-  (:require [com.stuartsierra.component :as component]
-            [com.frereth.client.system :as system]))
+  (:require [com.frereth.client.system :as system]
+            [integrant.core :as ig]))
 
 (defn -main
   "Run the client-system as a stand-alone until it signals completion"
   [& args]
-  (let [pre-universe (system/init)]
-    (let [universe (component/start pre-universe)]
+  (let [pre-universe (system/init {})]
+    (let [universe (ig/init pre-universe)]
       (try
-        (let [done (:done universe)]
+        (let [done (::system/done universe)]
           @done)
         (finally
-          (component/stop universe))))))
+          (ig/halt! universe))))))

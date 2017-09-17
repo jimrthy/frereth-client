@@ -4,23 +4,16 @@
 This is designed to work in concert with the ConnectionManager: that
 establishes an initial connection to a Server, then this takes over to
 do the long-term bulk work."
-  (:require [cljeromq.common :as mq-cmn]
-            [cljeromq.core :as mq]
-            [cljeromq.curve :as curve]
-            [clojure.core.async :as async]
-            [clojure.spec :as s]
+  (:require [clojure.core.async :as async]
+            [clojure.spec.alpha :as s]
             [com.frereth.client.dispatcher :as dispatcher]
             [com.frereth.common.async-zmq]
             [com.frereth.common.system :as sys]
             [com.frereth.common.schema :as com-skm]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
-            [com.stuartsierra.component :as component]
-            [component-dsl.system :as cpt-dsl]
-            [taoensso.timbre :as log])
-  (:import [com.frereth.common.async_zmq EventPair]
-           [com.frereth.common.zmq_socket SocketDescription]
-           [com.stuartsierra.component SystemMap]))
+            [integrant.core :as ig]
+            [taoensso.timbre :as log]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Schema
@@ -49,7 +42,7 @@ do the long-term bulk work."
 
 (s/def ::ctrl-chan :com.frereth.common.schema/async-channel)
 (s/def ::dispatcher :com.frereth.common.schema/async-channel)
-(s/def ::event-loop :com.frereth.common.async-zmq/event-pair)
+(s/def ::event-loop #_:com.frereth.common.async-zmq/event-pair any?)
 (s/def ::remote-mix :com.frereth.common.schema/async-channel)
 (s/def ::remotes ::remote-map-atom)
 
@@ -262,76 +255,75 @@ to forward messages based on the channel where it received them."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Components
 
-(defrecord WorldManager [ctrl-chan
-                         dispatcher
-                         event-loop
-                         mix-out
-                         remote-mix
-                         remotes
-                         state
-                         ;; async channel to trigger FSM adjustments
-                         transition]
-  component/Lifecycle
-  (start
-    [this]
-    ;; Caller supplies the event-loop. We maintain responsibility for
-    ;; starting/stopping.
-    ;; This is an advantage of hara.event.
-    ;; Q: Is this a feature that's worth adding to component-dsl?
-    (let [mix-out (or mix-out (async/chan)) ; Trust this to get GC'd w/ remote-mix
-          state (atom ::initialized)
-          this (assoc this
-                      :state state
-                      ;; Avoiding this was a major factor in recent cpt-dsl changes.
-                      ;; Q: Do I still need to do this?
-                      :event-loop (component/start event-loop)
-                      :ctrl-chan (async/chan)
-                      :mix-out mix-out
-                      :remote-mix (async/mix mix-out))
-          sans-dispatcher (if-not remotes
-                            (assoc this :remotes (atom {}))
-                            this)
-          ;; Q: If/when this turns into a bottleneck, will I gain any performance benefits
-          ;; by expanding to multiple instances/go-loop threads?
-          ;; TODO: Figure out some way to benchmark this
-          result (assoc sans-dispatcher :dispatcher (build-dispatcher-loop! this))]
-      (add-watch (:state result) :fsm (fn [k _ old new]
-                                        ;; TODO: Be more useful.
-                                        ;; Main thing is that we need to notify renderers
-                                        ;; that they can start connecting to Worlds.
-                                        ;; And add identity...maybe the server ID
-                                        ;; or URL, at least
-                                        (log/info (str "WorldManager: " (util/pretty this)
-                                                       "\nstate changing from " old
-                                                       "\nto " new))
-                                        (when (= new ::timeout)
-                                          (throw (ex-info "Not Implemented"
-                                                          ;; Note that this needs to back off
-                                                          {:todo "Try to reconnect?"})))))
-      (reset! state ::connecting)
-      (negotiate-connection! result)
-      result))
-  (stop
-    [this]
-    (reset! state ::disconnecting)
-    (when event-loop
-      (component/stop event-loop))
-    (when ctrl-chan
-      ;; Note that this signals the dispatcher loop to close
-      (async/close! ctrl-chan))
-    ;; It's tempting to try to close! remote-mix.
-    ;; But that isn't legal.
-    (when mix-out
-      (async/close! mix-out))
+(defmethod ig/init-key ::world-manager
+  [_ {:keys [::ctrl-chan
+             ::event-loop
+             ::mix-out
+             ::remote-mix
+             ::remotes]
+      :as this}]
+  ;; Caller supplies the event-loop. We maintain responsibility for
+  ;; starting/stopping.
+  ;; This is an advantage of hara.event.
+  (let [mix-out (or mix-out (async/chan)) ; Trust this to get GC'd w/ remote-mix
+        state (atom ::initialized)
+        this (assoc this
+                    :state state
+                    ;; Avoiding this was a major factor in recent cpt-dsl changes.
+                    ;; Q: Do I still need to do this?
+                    :event-loop (ig/init event-loop)
+                    :ctrl-chan (async/chan)
+                    :mix-out mix-out
+                    :remote-mix (async/mix mix-out))
+        sans-dispatcher (if-not remotes
+                          (assoc this :remotes (atom {}))
+                          this)
+        ;; Q: If/when this turns into a bottleneck, will I gain any performance benefits
+        ;; by expanding to multiple instances/go-loop threads?
+        ;; TODO: Figure out some way to benchmark this
+        result (assoc sans-dispatcher :dispatcher (build-dispatcher-loop! this))]
+    (add-watch (:state result) :fsm (fn [k _ old new]
+                                      ;; TODO: Be more useful.
+                                      ;; Main thing is that we need to notify renderers
+                                      ;; that they can start connecting to Worlds.
+                                      ;; And add identity...maybe the server ID
+                                      ;; or URL, at least
+                                      (log/info (str "WorldManager: " (util/pretty this)
+                                                     "\nstate changing from " old
+                                                     "\nto " new))
+                                      (when (= new ::timeout)
+                                        (throw (ex-info "Not Implemented"
+                                                        ;; Note that this needs to back off
+                                                        {:todo "Try to reconnect?"})))))
+    (reset! state ::connecting)
+    (negotiate-connection! result)
+    result))
 
-    (let [this (assoc this
-                      :ctrl-chan nil
-                      :dispatcher nil
-                      :event-loop nil
-                      :mix-out nil
-                      :remote-mix nil)
-          disconnected (if remotes
-                         (do
+(defmethod ig/halt-key! ::world-manager
+  [_ {:keys [::ctrl-chan
+             ::event-loop
+             ::mix-out
+             ::remotes
+             ::state]
+      :as this}]
+  (reset! state ::disconnecting)
+  (when event-loop
+    (ig/halt! event-loop))
+  (when ctrl-chan
+    ;; Note that this signals the dispatcher loop to close
+    (async/close! ctrl-chan))
+  ;; It's tempting to try to close! remote-mix.
+  ;; But that isn't legal.
+  (when mix-out
+    (async/close! mix-out))
+  (let [this (assoc this
+                    :ctrl-chan nil
+                    :dispatcher nil
+                    :event-loop nil
+                    :mix-out nil
+                    :remote-mix nil)
+        disconnected (if remotes
+                       (do
                            (doseq [[_name remote] @remotes]
                              ;; Q: Why am I shutting down the event
                              ;; loop before closing its communications pathways?
@@ -342,13 +334,13 @@ to forward messages based on the channel where it received them."
                                         "\nwith keys:" (keys remote)
                                         "\nand auth token: " (:auth-token remote))
                              ;; FIXME: Shouldn't need to do this
-                             (component/stop (dissoc remote :auth-token)))
+                             (ig/halt! (dissoc remote :auth-token)))
                            (log/debug "Communications Loop Manager: Finished stopping remotes")
                            (assoc this :remotes nil))
                          this)]
-      (reset! state ::initialized)
-      (remove-watch state :fsm)
-      disconnected)))
+    (reset! state ::initialized)
+    (remove-watch state :fsm)
+    disconnected))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Public
@@ -385,10 +377,3 @@ to forward messages based on the channel where it received them."
   (let [existing-session (-> this :remotes (get world-id) (get renderer-session))]
     (assert existing-session)
     (throw (ex-info "Not Implemented" {:problem "How should this work?"}))))
-
-(s/fdef ctor
-        :args (s/cat :options ::world-manager-ctor-opts)
-        :ret ::world-manager)
-(defn ctor
-  [options]
-  (map->WorldManager options))

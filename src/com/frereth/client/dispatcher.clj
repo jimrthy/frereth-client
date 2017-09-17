@@ -3,10 +3,10 @@
 
 This is really only interesting because it needs to support multiple protocols
 and backwards compatibility."
-  (:require [clojure.spec :as s]
+  (:require [clojure.spec.alpha :as s]
             ;; Currently just needed for spec
             [com.frereth.common.communication]
-            [com.stuartsierra.component :as component]))
+            [integrant.core :as ig]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Specs
@@ -41,38 +41,36 @@ and backwards compatibility."
                                     ;; that's supposed to return true/false.
                                     (s/conform ::connected-session connected-session))))
 
-(s/def :unq/Dispatcher
-  (s/keys ::req-un [::conected-session-atom ::render-protocol-version ::server-protocol-version]
-          ::opt-un []))
+(s/def ::dispatcher
+  (s/keys ::req [::conected-session-atom ::render-protocol-version ::server-protocol-version]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Component
 
-;;; One Dispatcher per server connection
-(defrecord Dispatcher
-    ;; this needs an atom of connected renderer sessions.
-    ;; They're all connected to the same Server, by definition.
-    ;; The renderer-id and :world-id should be good enough keys
-    ;; to find the server-side cookie.
-    ;; Probably need to include the renderer-id as an encrypted
-    ;; session cookie so we can find that on the response.
-    ;; Or should I just keep another map of server/world session
-    ;; IDs in here to reduce the risk of other malicious clients
-    ;; from hijacking these sessions?
-    [connected-session-atom
-     render-protocol-version
-     server-protocol-version]
-  :load-ns true   ; Q: Is this new?
-  component/Lifecycle
-  (start [this]
-    (let [connected-session-atom (or connected-session-atom
-                                     (atom {}))]
-      (assoc this :connected-session-atom connected-session-atom)))
-  (stop [this]
-    ;; Q: Does it make sense to discard any/all connected sessions here?
-    ;; A: Well, it seems like a very obvious thing to do. But it might be
-    ;; convenient to leave it be until this part is solidly debugged.
-    this))
+(defmethod ig/init-key ::dispatcher
+  ;; this needs an atom of connected renderer sessions.
+  ;; They're all connected to the same Server, by definition.
+  ;; The renderer-id and :world-id should be good enough keys
+  ;; to find the server-side cookie.
+  ;; Probably need to include the renderer-id as an encrypted
+  ;; session cookie so we can find that on the response.
+  ;; Or should I just keep another map of server/world session
+  ;; IDs in here to reduce the risk of other malicious clients
+  ;; from hijacking these sessions?
+  [_ {:keys [::connected-session-atom
+             ::render-protocol-version
+             ::server-protocol-version]
+      :as this}]
+  ;; Note that this really seems more like a case for pause/resume
+  (let [connected-session-atom (or connected-session-atom
+                                   (atom {}))]
+    (assoc this :connected-session-atom connected-session-atom)))
+
+;; Q: Does it make sense to add a halt-key! to discard any/all connected
+;; sessions here?
+;; A: Well, it seems like a very obvious thing to do. But it might be
+;; convenient to leave it be until this part is solidly debugged.
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Internal

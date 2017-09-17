@@ -2,22 +2,17 @@
   "Odds and ends that should be part of the app library but were cluttering up files here instead
 
   Really parts of a first draft that I'm not quite ready to throw out just yet"
-  (:require [cljeromq.common :as mq-cmn]
-            [cljeromq.constants :as mq-k]
-            [cljeromq.core :as mq]
-            [cljeromq.curve :as curve]
-            [clj-time.core :as dt]
+  (:require [clj-time.core :as dt]
             [clojure.core.async :as async]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [com.frereth.client.connection-manager :as connection-manager]
             [com.frereth.client.world-manager :as world-manager]
             [com.frereth.common.communication :as com-comm]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
-            [com.stuartsierra.component :as component]
+            [integrant.core :as ig]
             [taoensso.timbre :as log])
   (:import [clojure.lang ExceptionInfo]
-           [com.frereth.common.zmq_socket ContextWrapper]
            [java.util Date]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -46,7 +41,7 @@
 (s/def ::expires inst?)
 ;; This is actually a byte array, but, for dev testing, I'm just using a UUID
 ;; TODO: Tighten this up once I have something resembling encryption
-(s/def ::public-key (s/or :real-thing :cljeromq.curve/public
+(s/def ::public-key (s/or :real-thing #_:cljeromq.curve/public any?
                           :fake-for-debugging uuid?))
 (s/def ::session-token :com.frereth.client.world-manager/session-id-type)
 ;;; TODO: Come up with a better name. auth usually won't be involved, really.
@@ -80,7 +75,7 @@
                                        :world ::auth-dialog-dynamic-description))
 (s/def ::optional-auth-dialog-description (s/nilable ::auth-dialog-description))
 
-(s/def ::auth-sock :cljeromq.common/socket)
+(s/def ::auth-sock #_:cljeromq.common/socket any?)
 (s/def ::dialog-description ::optional-auth-dialog-description)
 ;; Q: What should this actually look like?
 (s/def ::individual-connection (s/keys :req [::auth-sock ::dialog-description]))
@@ -268,13 +263,15 @@ Q: Which manager ns did I mean?"
         description-frames))
     (catch ExceptionInfo ex
       (if-let [errno (:error-number (.getData ex))]
-        (if (= errno (mq-k/error->const :again))
-          (do
-            (log/debug "No fresh description available from server yet. Requesting...")
-            (request-auth-descr! auth-sock)
-            ;; trigger another request
-            nil)
-          (throw ex))
+        #_(comment
+          (if (= errno (mq-k/error->const :again))
+            (do
+              (log/debug "No fresh description available from server yet. Requesting...")
+              (request-auth-descr! auth-sock)
+              ;; trigger another request
+              nil)
+            (throw ex)))
+        (throw (RuntimeException. "Need to reimplement this"))
         (throw ex)))))
 
 (s/fdef unexpired-auth-description
@@ -354,10 +351,10 @@ Actually, this should just be an async/pipeline-async transducer.
 TODO: Switch to that"
     [{:keys [auth-request message-context status-check]
       :as this} :- ConnectionManager
-     auth-url :- mq/zmq-url]
-    (let [url-string (mq/connection-string auth-url)
+     auth-url :- #_mq/zmq-url any?]
+    (let [url-string #_(mq/connection-string auth-url) (throw (RuntimeException. "Need to reimplement this"))
           ctx (:ctx message-context)
-          auth-sock (mq/connected-socket! ctx :dealer url-string)
+          auth-sock #_(mq/connected-socket! ctx :dealer url-string) (throw (RuntimeException. "Need to reimplement this"))
           minutes-5 (partial async/timeout (* 5 (util/minute)))
           done (promise)
           interesting-channels [auth-request status-check]]
@@ -488,7 +485,7 @@ of Server instances.
                                                                   :status-chan status-chan}
                                            :event-loop {:_name loop-name}})
                injected (assoc-in initialized [:sock :ctx] (:ctx auth-sock))
-               started (assoc (component/start injected)
+               started (assoc (ig/init injected)
                               :auth-token auth-token)]
            (swap! (:remotes this) assoc loop-name started)
            (log/warn "TODO: Really should handle handshake w/ new socket")
@@ -502,6 +499,7 @@ of Server instances.
   ;; I used this to debug the basic idea behind what's going on in authorize.
   ;; Q: Is there any sort of meaningful/useful unit test
   ;; lurking around here?
+  ;; A: It seems highly unlikely
   (let [prereq-descr {:structure '{:sock com.frereth.common.zmq-socket/ctor
                                    :ctx com.frereth.common.zmq-socket/ctx-ctor}
                       :dependencies {:sock [:ctx]}}
@@ -569,27 +567,27 @@ of Server instances.
 (s/fdef establish-connection
         :args (s/cat :world-id :com.frereth.client.world-manager/world-id-type
                      :ctx :com.frereth.common.zmq-socket/context-wrapper
-                     :url :cljeromq.core/zmq-url)
+                     :url #_:cljeromq.core/zmq-url any?)
         :ret ::individual-connection)
 (defn establish-connection
   [world-id
    ctx
    url]
   ;; TODO: Move this into its own Component that the ConnectionManager can depend on
-  (let [dead-sock (zmq-socket/ctor {:ctx ctx
-                                    :url url
-                                    ;; FIXME: Key management!!
-                                    ;; Doing that right really allows most of this
-                                    ;; to go away.
-                                    ;; And this approach ties me specifically to servers
-                                    ;; that use the "private" key I'm publishing in the
-                                    ;; name of the same sort of "worry about it later"
-                                    ;; spirit that I'm using here
-                                    :client-keys (curve/new-key-pair)
-                                    :server-key (curve/z85-decode "vk<(J}0TEPeEsdZv+ZN.1)N[KlYVZPZgK(.36Qrx")
-                                    :sock-type :dealer
-                                    :direction :connect})
-        sock (component/start dead-sock)]
+  (let [dead-sock #:com.frereth.common.zmq-socket {:ctx ctx
+                                                   :url url
+                                                   ;; FIXME: Key management!!
+                                                   ;; Doing that right really allows most of this
+                                                   ;; to go away.
+                                                   ;; And this approach ties me specifically to servers
+                                                   ;; that use the "private" key I'm publishing in the
+                                                   ;; name of the same sort of "worry about it later"
+                                                   ;; spirit that I'm using here
+                                                   :client-keys (comment (curve/new-key-pair))
+                                                   :server-key (comment (curve/z85-decode "vk<(J}0TEPeEsdZv+ZN.1)N[KlYVZPZgK(.36Qrx"))
+                                                   :sock-type :dealer
+                                                   :direction :connect}
+        sock (ig/init dead-sock)]
     ;; Q: Can this possibly work?
     ;; A: Probably not...but maybe
     ;; N.B. As-is, this will throw an AssertionError if
@@ -601,7 +599,7 @@ of Server instances.
       (catch ExceptionInfo ex
         (let [details (.getData ex)]
           (if-let [errno (:error-number details)]
-            (let [eagain (mq-k/error->const :again)]
+            (let [eagain #_(mq-k/error->const :again) (throw (RuntimeException. "Need to reimplement this"))]
               (if (= errno eagain)
                 (log/info "No instractions auth available from server. Have we requested any?")
                 (throw ex)))

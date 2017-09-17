@@ -1,12 +1,10 @@
 (ns com.frereth.client.communicator
-  (:require [cljeromq.common :as mq-cmn]
-            [cljeromq.core :as mq]
-            [clojure.core.async :as async]
-            [clojure.spec :as s]
+  (:require [clojure.core.async :as async]
+            [clojure.spec.alpha :as s]
             [clojure.tools.logging :as log]
             [com.frereth.client.config :as config]
-            [com.stuartsierra.component :as component]
             [hara.event :refer (raise)]
+            [integrant.core :as ig]
             [taoensso.timbre :as timbre])
   (:import [clojure.lang ExceptionInfo]))
 
@@ -24,7 +22,6 @@
 (s/def ::uri (s/keys :req-un [::protocol ::address ::port]))
 
 (s/def ::thread-count (s/and integer? pos?))
-(s/def ::zmq-context (s/keys :req-un [:cljeromq.common/context ::thread-count]))
 
 ;; Q: What is this?
 (s/def ::renderers any?)
@@ -57,92 +54,95 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Components
 
-(defrecord ZmqContext [context
-                       thread-count]
-  component/Lifecycle
-  (start
-   [this]
-   (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
-                  (class thread-count) ") threads")]
-     (println msg))
-   (let [ctx (mq/context thread-count)]
-     (assoc this :context ctx)))
-  (stop
-   [this]
-   (when context
-     (comment (mq/terminate! context)))
-   (assoc this :context nil)))
+(defmethod ig/init-key ::zmq-ctx
+  [_ {:keys [::thread-count]
+      :as this}]
+  (let [msg (str "Creating a 0mq Context with " thread-count " (that's a "
+                 (class thread-count) ") threads")]
+    (println msg))
+  (let [ctx #_(mq/context thread-count) (throw (RuntimeException. "New message scheme"))]
+    (assoc this :context ctx)))
+
+(defmethod ig/halt-key! ::zmq-ctx
+  [_ {:keys [::ctx]}]
+  (throw (RuntimeException. "We *do* need to halt this, don't we?")))
 
 ;;; TODO: This should just go away completely
 ;;; Switch to zmq-url from cljeromq.common
 (defrecord URI [protocol
                 address
-                port]
-  component/Lifecycle
-  (start [this] this)
-  (stop [this] this))
+                port])
+
+;;; This represents a socket for renderers to connect to.
+;;; It's really pretty obsolete, if I do the sensible (?)
+;;; thing and use this as a library instead of middleware.
+
+(defmethod ig/init-key ::renderer-socket
+  [_ {:keys [::context
+             ::renderer-url]
+      :as this}]
+  (let [sock (comment (mq/socket! (:context context) :router))
+        actual-url (build-url renderer-url)]
+    (try
+      ;; TODO: Make this another option. It's really only
+      ;; for debugging.
+      ;; Although, really, when would I ever turn it off?
+      ;; TODO: Look up (and document) what it actually does
+      (comment
+        (mq/set-router-mandatory! sock true)
+        (mq/bind! sock actual-url))
+      (throw (RuntimeException. "Need something along those lines"))
+      (catch ExceptionInfo ex
+        (raise {:cause ex
+                :binding renderer-url
+                :details actual-url})))
+    ;; Q: What do I want to do about the renderers?
+    (assoc this :socket sock)))
+
+(defmethod ig/halt-key! ::renderer
+  [_ {:keys [::renderer-url
+             ::socket]
+      :as this}]
+  (when socket
+    (log/info "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
+    (if (not= "inproc" (:protocol renderer-url))
+      (try
+        ;; TODO: Don't bother trying to unbind an inproc socket.
+        ;; Which really means checking the socket options to see
+        ;; what we've got.
+        ;; Or being smarter about tracking it.
+        ;; Then again...the easy answer is just to check whether
+        ;; we're using "inproc" as the protocol
+        (comment
+          (mq/unbind! socket (build-url renderer-url)))
+        (throw (RuntimeException. "Does unbind make any sense?"))
+        (catch ExceptionInfo ex
+          (log/info ex "This usually isn't a real problem")))
+      (log/debug "Can't unbind an inproc socket"))
+    (comment (mq/close! socket))
+    (throw (RuntimeException. "What about closing?"))))
 
 ;; Q: How do I want to handle the actual server connections?
-(defrecord RendererSocket [context
-                           renderers
-                           socket
-                           renderer-url]
-  component/Lifecycle
-  (start
-   [this]
-   (let [sock  (mq/socket! (:context context) :router)
-         actual-url (build-url renderer-url)]
-     (try
-       ;; TODO: Make this another option. It's really only
-       ;; for debugging.
-       ;; Although, really, when would I ever turn it off?
-       ;; TODO: Look up (and document) what it actually does
-       (mq/set-router-mandatory! sock true)
-       (mq/bind! sock actual-url)
-       (catch ExceptionInfo ex
-         (raise {:cause ex
-                 :binding renderer-url
-                 :details actual-url})))
-     ;; Q: What do I want to do about the renderers?
-     (assoc this :socket sock)))
-  (stop
-   [this]
-   (when socket
-     (log/info "Trying to unbind: " socket "(a " (class socket) ") from " renderer-url)
-     (if (not= "inproc" (:protocol renderer-url))
-       (try
-         ;; TODO: Don't bother trying to unbind an inproc socket.
-         ;; Which really means checking the socket options to see
-         ;; what we've got.
-         ;; Or being smarter about tracking it.
-         ;; Then again...the easy answer is just to check whether
-         ;; we're using "inproc" as the protocol
-         (mq/unbind! socket (build-url renderer-url))
-         (catch ExceptionInfo ex
-           (log/info ex "This usually isn't a real problem")))
-       (log/debug "Can't unbind an inproc socket"))
-     (mq/close! socket))
-   (reset! renderers {})
-   (assoc this :socket nil)))
+(defmethod ig/init-key ::server
+  [_ {:keys [::context
+             ::url]
+      :as this}]
+  (let [sock (comment (mq/socket! (:context context) :dealer))]
+    (comment
+      (println "Connecting server socket to" url)
+      (mq/connect! sock (build-url url)))
+    (throw (RuntimeException. "Reimplement connect!"))
+    (assoc this :socket sock)))
 
-(defrecord ServerSocket [context
-                         socket
-                         url]
-  component/Lifecycle
-  (start
-   [this]
-   (let [sock (mq/socket! (:context context) :dealer)]
-     (println "Connecting server socket to" url)
-     (mq/connect! sock (build-url url))
-     (assoc this :socket sock)))
-
-  (stop
-   [this]
-   (when socket
-     (mq/set-linger! socket 0)
-     (mq/disconnect! socket (build-url url))
-     (mq/close! socket))
-   (assoc this :socket nil)))
+(defmethod ig/halt-key! ::server
+  [_ {:keys [::server
+             ::url]}]
+  (comment
+    (when socket
+      (mq/set-linger! socket 0)
+      (mq/disconnect! socket (build-url url))
+      (mq/close! socket)))
+  (throw (RuntimeException. "Surely we need to do some sort of cleanup")))
 
 ;;; Q: What was this next block for?
 (comment (defrecord Communicator [command-channel
@@ -179,23 +179,23 @@
 
 (defn new-context
   [thread-count]
-  (map->ZmqContext {:context nil
-                    :thread-count thread-count}))
+  {::context nil
+   ::thread-count thread-count})
 
 (defn new-renderer-url
   [{:keys [renderer-protocol renderer-address renderer-port] :as cfg}]
   (println "Setting up the renderer URL based on:\n" cfg)
-  (map->URI {:protocol renderer-protocol
-             :address renderer-address
-             :port renderer-port}))
+  {::protocol renderer-protocol
+   ::address renderer-address
+   ::port renderer-port})
 
 (defn new-renderer-handler
   [params]
   (let [cfg (select-keys params [:config])]
-    (map->RendererSocket {:config cfg
-                          :context nil
-                          :renderers (atom {})
-                          :socket nil})))
+    {::config cfg
+     ::context nil
+     ::renderers (atom {})
+     ::socket nil}))
 
 (s/fdef default-server-url
         :args (s/cat :protocol string?
@@ -204,13 +204,9 @@
         :ret ::uri)
 (defn default-server-url
   ([protocol address port]
-     (map->URI {:protocol protocol
-                :address address
-                :port port}))
+   {::protocol protocol
+    ::address address
+    ::port port})
   ([]
    ;; Start by defaulting to action
    (default-server-url "tcp" "localhost" 7841)))
-
-(defn new-server
-  []
-  (map->ServerSocket {}))

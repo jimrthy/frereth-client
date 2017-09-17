@@ -25,50 +25,45 @@ the server's private key, and that this side has access to the appropriate
 client private key (assuming the server checks).
 
 It says nothing about the end-users who are using this connection."
-  (:require [cljeromq.common :as mq-cmn]
-            [cljeromq.core :as mq]
-            [cljeromq.curve :as curve]
-            [clojure.core.async :as async]
+  (:require [clojure.core.async :as async]
             [clojure.edn :as edn]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             ;; Note that this is really only being used here for specs
             ;; So far. This seems wrong.
             [com.frereth.client.world-manager :as manager]
+            [com.frereth.common.async-zmq :as async-zmq]
             [com.frereth.common.schema :as fr-skm]
             [com.frereth.common.system :as com-sys]
             [com.frereth.common.util :as util]
             [com.frereth.common.zmq-socket :as zmq-socket]
-            [com.stuartsierra.component :as component]
-            [component-dsl.system :as cpt-dsl]
             [hara.event :refer (raise)]
+            [integrant.core :as ig]
             [taoensso.timbre :as log])
-  (:import [clojure.lang ExceptionInfo]
-           [com.frereth.client.world_manager WorldManager]
-           [com.frereth.common.zmq_socket ContextWrapper]))
+  (:import [clojure.lang ExceptionInfo]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Specs
 
 (s/def ::server-id-type :com.frereth.common.schema/generic-id)
-(s/def ::url :cljeromq.common/zmq-url)
+(s/def ::url #_:cljeromq.common/zmq-url any?)
 
 (s/def ::server-connection-map (s/and deref
-                                      (s/map-of :cljeromq.common/zmq-url :com.frereth.client.world-manager/world-manager)))
+                                      (s/map-of #_:cljeromq.common/zmq-url any? :com.frereth.client.world-manager/world-manager)))
 
-(s/def ::client-keys :cljeromq.curve/key-pair)
+(s/def ::client-keys #_:cljeromq.curve/key-pair any?)
 (s/def ::local-url ::url)
 (s/def ::message-context :com.frereth.common.zmq-socket/context-wrapper)
 (s/def ::server-connections ::server-connection-map)
-(s/def ::server-key :cljeromq.curve/public)
+(s/def ::server-key #_:cljeromq.curve/public any?)
 
 (s/def ::status-check :com.frereth.common.schema/async-channel)
-(s/def ::connection-manager (s/keys :req-un [::client-keys
-                                             ::local-url
-                                             ::message-context
-                                             ::server-connections
-                                             ::server-key
-                                             ::status-check]))
-(s/def ::connection-manager-ctor-opts (s/keys :opt-un [::client-keys ::local-url ::server-key]))
+(s/def ::manager (s/keys :req [::client-keys
+                               ::local-url
+                               ::message-context
+                               ::server-connections
+                               ::server-key
+                               ::status-check]))
+(s/def ::connection-manager-ctor-opts (s/keys :opt [::client-keys ::local-url ::server-key]))
 
 (s/def ::respond :com.frereth.common.schema/async-channel)
 ;; Where do I send responses back to?
@@ -99,45 +94,44 @@ It says nothing about the end-users who are using this connection."
 ;; I'd rather handle it this way than mess with my file layout
 ;; conventions.
 (declare establish-server-connection!)
-(defrecord ConnectionManager
-    [client-keys
-     local-url
-     message-context
-     server-connections
-     server-key
-     status-check]
-  component/Lifecycle
-  (start
-   [this]
-   ;; Create pieces that weren't supplied externally
-    (let [this (assoc this
-                      :status-check (or status-check (async/chan))
-                      :server-connections (or server-connections (atom {})))]
-      (comment) (establish-server-connection! this
-                                              {::server-id :local
-                                               ::url local-url})
-      this))
-  (stop
-   [this]
-   (when server-connections
-     (let [actual-connections @server-connections]
-       ;; TODO: Hang on to the individual world description
-       ;; Seems like it would make reconnecting
-       ;; or session restoration easier
-       ;; Then again, that's really a higher-level scope.
-       ;; And it's YAGNI
-       (doseq [connection (vals actual-connections)]
-         (component/stop connection))))
-   (when status-check
-     (async/close! status-check))
-    (assoc this
-           :message-context nil   ; Q: Do I really want to nil this out?
-           :status-check nil)))
 
-(s/fdef establish-server-connection!
-        :args (s/cat :this ::connection-manager
+(defmethod ig/init-key ::manager
+  [_ {:keys [::local-url
+             ::server-connections
+             ::status-check]
+      :as this}]
+   ;; Create pieces that weren't supplied externally
+  (let [this (assoc this
+                    :status-check (or status-check (async/chan))
+                    :server-connections (or server-connections (atom {})))]
+    (comment) (establish-server-connection! this
+                                            {::server-id :local
+                                             ::url local-url})
+    this))
+
+(defmethod ig/halt-key! ::manager
+  [_ {:keys [::server-connections
+             ::status-check]}]
+  (when server-connections
+    (let [actual-connections @server-connections]
+      ;; TODO: Hang on to the individual world description
+      ;; Seems like it would make reconnecting
+      ;; or session restoration easier
+      ;; Then again, that's really a higher-level scope.
+      ;; And it's YAGNI
+      (doseq [connection (vals actual-connections)]
+        (ig/halt! connection))))
+  (when status-check
+    ;; TODO: Track whether this was supplied or we created it
+    ;; here.
+    ;; As-written, we may or may not be responsible for cleaning
+    ;; it up.
+    (async/close! status-check)))
+
+(s/fdef initialize-server-connection!
+        :args (s/cat :this ::manager
                      :server ::server-connection-description)
-        :ret :component-dsl.system/system-map)
+        :ret ::manager)
 (defn initialize-server-connection
   [{:keys [client-keys
            server-key
@@ -145,28 +139,19 @@ It says nothing about the end-users who are using this connection."
     :as this}
    {:keys [::server-id ::url]
     :as connection-description}]
-  (let [event-loop-params {:client-keys client-keys
+  (let [event-loop-params {::com-sys/client-keys client-keys
                            ;; This part's broken now.
                            ;; I really need to be able to override this from here,
                            ;; even though it's far more convenient for the Server
                            ;; to just let common set up its own.
-                           ;; Pretty sure this will just break component-dsl.
-                           :context message-context
-                           :event-loop-name server-id
-                           :server-key server-key
-                           :url url}
-        struc '{:event-loop com.frereth.common.system/build-event-loop-description
-                ;; Q: What about the :dispatcher?
-                :world-manager com.frereth.client.world-manager/ctor}
-        deps {:world-manager [:event-loop]}
-
-        ;; These really don't fit the classic intended use of Components:
-        ;; those are all started/stopped at the same time.
-        ;; But it's still a very useful abstraction for this sort of thing
-        system-description #:component-dsl.system {:structure struc
-                                                   :dependencies deps}
-        opts {:event-loop event-loop-params}]
-    (cpt-dsl/build system-description opts)))
+                           ::com-sys/context message-context
+                           ::com-sys/event-loop-name server-id
+                           ::com-sys/server-key server-key
+                           ::com-sys/url url}
+        event-loop-description (com-sys/build-event-loop-description event-loop-params)
+        dscr (assoc event-loop-description
+                    ::manager/world-manager {:event-loop (ig/ref ::async-zmq/event-loop)})]
+    (ig/init dscr)))
 (comment
   (let [baseline (initialize-server-connection
                   {:client-keys {:public "ac" :private "dc"}
@@ -182,9 +167,9 @@ It says nothing about the end-users who are using this connection."
 ;;; Public
 
 (s/fdef establish-server-connection!
-        :args (s/cat :this ::connection-manager
+        :args (s/cat :this ::manager
                      :server ::server-connection-description)
-        :ret ::connection-manager)
+        :ret ::manager)
 (defn establish-server-connection!
   "Possibly alters ConnectionManager with a new world-manager"
   [{:keys [server-connections]
@@ -201,27 +186,27 @@ It says nothing about the end-users who are using this connection."
       ;; would mean reinventing STM
       (swap! server-connections #(assoc %
                                         server-id
-                                        (component/start initialized))))
+                                        (ig/init initialized))))
     this))
 
 (comment
-  (let [descr {:client-keys (curve/new-key-pair)
-               :context {:mock "Don't need any of this, do I?"}
-               :event-loop-name :sample
-               :server-key "Public, byte array"
-               :url #:cljeromq.common {:zmq-address "127.0.0.1"
-                                      :zmq-protocol :tcp
-                                      :port 21}}
+  (let [descr #:com.frereth.common.system {:client-keys (curve/new-key-pair)
+                                           :context {:mock "Don't need any of this, do I?"}
+                                           :event-loop-name :sample
+                                           :server-key "Public, byte array"
+                                           :url #:cljeromq.common {:zmq-address "127.0.0.1"
+                                                                   :zmq-protocol :tcp
+                                                                   :port 21}}
           baseline (com-sys/build-event-loop descr)]
     (keys baseline))
   )
 
 (s/fdef connect-to-world!
-        :args (s/cat :this ::connection-manager
+        :args (s/cat :this ::manager
                      :renderer-session-id :com.frereth.client.world-manager/session-id-type
                      :server-id ::server-id-type
                      :world-id :com.frereth.client.world-manager/world-id-type)
-        :ret :com.frereth.client.world-manager/renderer-session)
+        :ret ::manager/renderer-session)
 (defn connect-to-world!
   [{conns :server-connections}
    renderer-session-id
@@ -232,25 +217,25 @@ It says nothing about the end-users who are using this connection."
     (throw (ex-info "Must call establish-server-connection! first"))))
 
 (s/fdef disconnect-from-server!
-        :args (s/cat :this ::connection-manager
+        :args (s/cat :this ::manager
                      :server-id ::server-id-type)
-        :ret ::connection-manager)
+        :ret ::manager)
 (defn disconnect-from-server!
   [this server-id]
   (throw (ex-info "Not Implemented" {})))
 
 (s/fdef disconnect-from-world!
-        :args (s/cat :this ::connection-manager
-                     :renderer-session-id :com.frereth.client.world-manager/session-id-type
+        :args (s/cat :this ::manager
+                     :renderer-session-id :manager/session-id-type
                      :server-id ::server-id-type
-                     :world-id :com.frereth.client.world-manager/world-id-type)
-        :ret ::connection-manager)
+                     :world-id :manager/world-id-type)
+        :ret ::manager)
 (defn disconnect-from-world!
   [this
    renderer-session-id
    server-id
    world-id]
-  (let [world-manager (-> this :server-connections deref (get server-id))]
+  (let [world-manager (-> this ::server-connections deref (get server-id))]
     (assert world-manager "Can't disconnect from a world if there's no server-connection")
     ;; It's very tempting to check the world connection count here and disconnect from the
     ;; server if/when it drops to 0.
@@ -260,13 +245,13 @@ It says nothing about the end-users who are using this connection."
     this))
 
 (s/fdef rpc
-        :args (s/cat :this ::connection-manager
-                     :world-id  :com.frereth.client.world-manager/world-id-type
+        :args (s/cat :this ::manager
+                     :world-id  ::manager/world-id-type
                      :method keyword?
                      :data any?
                      ;; Q: What about 0 for no wait and < 0 for infinite?
                      :timeout-ms (s/and integer? pos?))
-        :ret (s/nilable :com.frereth.common.schema/async-channel))
+        :ret (s/nilable ::fr-skm/async-channel))
 (defn rpc
   "For plain-ol' asynchronous request/response exchanges
 
@@ -310,8 +295,8 @@ TODO: This seems generally useful and probably belongs in common instead"
    (rpc this request-id method data (* 5 util/seconds))))
 
 (s/fdef rpc-sync
-        :args (s/cat :this ::connection-manager
-                     :request-id :com.frereth.client.world-manager/world-id-type
+        :args (s/cat :this ::manager
+                     :request-id ::manager/world-id-type
                      :method keyword?
                      :data any?
                      :timeout (s/and integer? pos?)))
@@ -383,10 +368,3 @@ TODO: This seems generally useful and probably belongs in common instead"
       (log/error "Couldn't submit status request")))
 
 )
-
-(s/fdef ctor
-        :args (s/cat :opts ::connection-manager-ctor-opts)
-        :ret ::connection-manager)
-(defn ctor
-  [opts]
-  (map->ConnectionManager (select-keys opts [:client-keys :local-url :server-key])))
