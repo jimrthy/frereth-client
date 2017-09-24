@@ -1,6 +1,8 @@
+;;;; Deprecated. Switch to using boot
+
 (defproject com.frereth/client "0.1.0-SNAPSHOT"
   :description "You might think of this as the Web Kit piece, although that's really far too grandiose."
-  :dependencies [[byte-transforms "0.1.4"]  ;; Q: Does this make sense?
+  :dependencies [[byte-transforms "0.1.5-alpha1"]  ;; Q: Does this make sense?
                  [com.frereth/common "0.0.1-SNAPSHOT"]
                  [com.postspectacular/rotor "0.1.0"]
                  ;; I'd much rather just inherit this from frereth.common.
@@ -9,8 +11,8 @@
                  ;; And there's a managed-dependencies plugin for lein
                  ;; that should fix the problem
                  ;; TODO: Make this go back away
-                 [org.clojure/clojure "1.9.0-alpha14"]
-                 [org.clojure/tools.nrepl "0.2.12"]]
+                 [org.clojure/clojure "1.9.0-beta1"]
+                 [org.clojure/tools.nrepl "0.2.13"]]
 
   :jvm-opts [~(str "-Djava.library.path=/usr/local/lib:" (System/getenv "LD_LIBRARY_PATH"))
              "-Djava.awt.headless=true"]
@@ -24,7 +26,7 @@
   ;; Q: Why is this in here? It seems pretty profiles-specific.
   ;; Or was I thinking about using this from the server angle?
   ;; Note that I've had problems with it at least once now
-  :plugins [[cider/cider-nrepl "0.13.0" :exclusions [org.clojure/java.classpath]]]
+  :plugins [[cider/cider-nrepl "0.15.1" :exclusions [org.clojure/java.classpath]]]
   :profiles {:uberjar {:aot :all}
              :dev {:source-paths ["dev"]
                    :dependencies [[com.cemerick/pomegranate "0.3.1"  :exclusions [org.clojure/clojure
