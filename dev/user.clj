@@ -1,20 +1,24 @@
 (ns user
-  (:require [clojure.tools.namespace.repl :refer (refresh refresh-all)]))
+  (:require [clojure.core.async :as async]
+            [clojure.java.io :as io]
+            [clojure.string :as string]
+            [clojure.pprint :refer (pprint)]
+            [clojure.repl :refer :all]
+            [clojure.spec.alpha :as s]
+            [clojure.test :as test]
+            [clojure.tools.namespace.repl :refer (refresh refresh-all)]
+            ;; Q: Do I want something like this or spyscope?
+            ;;[clojure.tools.trace :as trace]
+            [com.frereth.client.connection-manager :as con-man]
+            [com.frereth.client.system :as system]
+            [com.frereth.common.util :as util]
+            [integrant.repl :refer (clear go halt init reset reset-all)]))
 
-;; This is an old trick from Pedestal. When system.clj doesn't compile,
-;; it can prevent the REPL from starting, which makes debugging very
-;; difficult. This extra step ensures the REPL starts, no matter what.
+(def +frereth-component+
+  "Just to help me track which REPL is which"
+  'client)
 
-(defn dev
+(defn ctor
   []
-  (require 'dev)
-  (in-ns 'dev))
-
-
-(defn go
-  []
-  (println "Don't you mean (dev) ?"))
-
-(defn reset
-  []
-  (println "Yep. You mean (dev)"))
+  (system/init {}))
+(integrant.repl/set-prep! ctor)
