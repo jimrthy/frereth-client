@@ -6,9 +6,9 @@
                                                                          riddley]] ;; Q: Does this make sense?
                             ;; TODO: Look at the CIDER instructions and check into inserting the appropriate
                             ;; middleware as needed
-                            [cider/cider-nrepl "0.15.1" :exclusions [org.clojure/java.classpath]]
+                            [cider/cider-nrepl "0.17.0" :exclusions [org.clojure/java.classpath]]
                             [com.cemerick/pomegranate
-                             "0.4.0"
+                             "1.0.0"
                              :exclusions [commons-codec
                                           org.clojure/clojure
                                           org.slf4j/jcl-over-slf4j]
@@ -21,19 +21,19 @@
                             [com.postspectacular/rotor "0.1.0" :exclusions [org.clojure/clojure]]
                             [com.taoensso/timbre "4.10.0" :exclusions [org.clojure/clojure
                                                                        org.clojure/tools.reader]]
-                            [integrant "0.6.1" :exclusions [org.clojure/clojure]]
-                            [integrant/repl "0.2.0" :scope "test" :exclusions [integrant
+                            [integrant "0.7.0-alpha2" :exclusions [org.clojure/clojure]]
+                            [integrant/repl "0.3.1" :scope "test" :exclusions [integrant
                                                                                org.clojure/clojure]]
 
-                            ;; Sticking with this version due to CLJS incompatabilities
-                            [org.clojure/clojure "1.9.0-alpha17"]
-                            [org.clojure/java.classpath "0.2.3"
+                            [org.clojure/clojure "1.9.0"]
+                            [org.clojure/java.classpath "0.3.0"
                              :exclusions [org.clojure/clojure] :scope "test"]
-                            [org.clojure/spec.alpha "0.1.123" :exclusions [org.clojure/clojure]]
+                            [org.clojure/spec.alpha "0.1.143" :exclusions [org.clojure/clojure]]
                             [org.clojure/test.check "0.10.0-alpha2" :scope "test" :exclusions [org.clojure/clojure]]
                             [org.clojure/tools.nrepl "0.2.13" :exclusions [org.clojure/clojure]]
                             [samestep/boot-refresh "0.1.0" :scope "test" :exclusions [org.clojure/clojure]]
-                            [tolitius/boot-check "0.1.4" :scope "test" :exclusions [org.tcrawley/dynapath]]]
+                            ;; This is the task that combines all the linters
+                            [tolitius/boot-check "0.1.9" :scope "test" :exclusions [org.tcrawley/dynapath]]]
           :project project
           :resource-paths #{"src"}
           :source-paths   #{"dev" "dev-resources" "test"})
