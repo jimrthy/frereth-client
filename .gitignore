@@ -13,4 +13,5 @@ pom.xml
 .lein-plugins
 *~
 .lein-repl-history
+.nrepl-history
 .nrepl-port
