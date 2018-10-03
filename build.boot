@@ -4,9 +4,7 @@
 (set-env! :dependencies   '[[adzerk/boot-test "RELEASE" :scope "test"]
                             [byte-transforms "0.1.5-alpha1" :exclusions [org.clojure/tools.logging
                                                                          riddley]] ;; Q: Does this make sense?
-                            ;; TODO: Look at the CIDER instructions and check into inserting the appropriate
-                            ;; middleware as needed
-                            [cider/cider-nrepl "0.17.0" :exclusions [org.clojure/java.classpath]]
+                            [cider/cider-nrepl "0.18.0" :exclusions [org.clojure/java.classpath]]
                             [com.cemerick/pomegranate
                              "1.0.0"
                              :exclusions [commons-codec
@@ -21,19 +19,19 @@
                             [com.postspectacular/rotor "0.1.0" :exclusions [org.clojure/clojure]]
                             [com.taoensso/timbre "4.10.0" :exclusions [org.clojure/clojure
                                                                        org.clojure/tools.reader]]
-                            [integrant "0.7.0-alpha2" :exclusions [org.clojure/clojure]]
+                            [integrant "0.7.0" :exclusions [org.clojure/clojure]]
                             [integrant/repl "0.3.1" :scope "test" :exclusions [integrant
                                                                                org.clojure/clojure]]
 
-                            [org.clojure/clojure "1.9.0"]
+                            [org.clojure/clojure "1.10.0-alpha8"]
                             [org.clojure/java.classpath "0.3.0"
                              :exclusions [org.clojure/clojure] :scope "test"]
-                            [org.clojure/spec.alpha "0.1.143" :exclusions [org.clojure/clojure]]
-                            [org.clojure/test.check "0.10.0-alpha2" :scope "test" :exclusions [org.clojure/clojure]]
+                            [org.clojure/spec.alpha "0.2.176" :exclusions [org.clojure/clojure]]
+                            [org.clojure/test.check "0.10.0-alpha3" :scope "test" :exclusions [org.clojure/clojure]]
                             [org.clojure/tools.nrepl "0.2.13" :exclusions [org.clojure/clojure]]
                             [samestep/boot-refresh "0.1.0" :scope "test" :exclusions [org.clojure/clojure]]
                             ;; This is the task that combines all the linters
-                            [tolitius/boot-check "0.1.9" :scope "test" :exclusions [org.tcrawley/dynapath]]]
+                            [tolitius/boot-check "0.1.11" :scope "test" :exclusions [org.tcrawley/dynapath]]]
           :project project
           :resource-paths #{"src"}
           :source-paths   #{"dev" "dev-resources" "test"})
