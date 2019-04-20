@@ -4,6 +4,8 @@
 (set-env! :dependencies   '[[adzerk/boot-test "RELEASE" :scope "test"]
                             [byte-transforms "0.1.5-alpha1" :exclusions [org.clojure/tools.logging
                                                                          riddley]] ;; Q: Does this make sense?
+                            ;; TODO: This should really be part of a cider deftask.
+                            ;; Don't inflict CIDER on people who don't use it.
                             [cider/cider-nrepl "0.18.0" :exclusions [org.clojure/java.classpath]]
                             [com.cemerick/pomegranate
                              "1.0.0"

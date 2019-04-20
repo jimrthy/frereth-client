@@ -2,7 +2,7 @@
 /classes
 /checkouts
 .lein-*
-.nrepl-port
+.nrepl-*
 pom.xml
 pom.xml.asc
 *.jar
