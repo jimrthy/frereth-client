@@ -1,21 +1,22 @@
 frereth-client
 ==============
 
-The part of Frereth where everything interesting happens
+Library for communicating with a frereth-server and running code that
+doesn't make sense in the browser.
 
 ## Installation
 
-Download from http://example.com/FIXME.
+```bash
+boot pom jar install
+```
 
 ## Usage
 
-FIXME: explanation
+Add a dependency to your project:
 
-    $ java -jar frereth-client-0.1.0-standalone.jar [args]
+    [com.frereth/client "0.1.0-SNAPSHOT"]
 
 ## Options
-
-FIXME: listing of options this app accepts.
 
 ## Examples
 
@@ -39,6 +40,6 @@ How many of those ideas apply here vs. in the renderer?
 
 ## License
 
-Copyright 2013 James Gatannah
+Copyright 2013-2019 James Gatannah
 
 Distributed under the Affero General Public License
